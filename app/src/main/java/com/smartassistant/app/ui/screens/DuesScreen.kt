@@ -142,6 +142,7 @@ private fun shareText(ctx: android.content.Context, msg: String) {
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun AddDueDialog(repo: MainRepo, onDismiss: () -> Unit) {
     var customers by remember { mutableStateOf<List<Customer>>(emptyList()) }
     var selectedId by remember { mutableStateOf(-1L) }
