@@ -1,0 +1,3 @@
+-keep class com.tom_roush.pdfbox.** { *; }
+-keep class com.smartassistant.app.data.local.entity.** { *; }
+-dontwarn org.apache.**
