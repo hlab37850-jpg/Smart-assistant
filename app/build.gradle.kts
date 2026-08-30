@@ -48,6 +48,12 @@ android {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1,NOTICE.md,LICENSE.md}"
     }
 }
+
+configurations.all {
+    // استبعاد BouncyCastle القديم من pdfbox لمنع التعارض
+    exclude(group = "org.bouncycastle", module = "bcprov-jdk15to18")
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
