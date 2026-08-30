@@ -3,6 +3,7 @@ package com.smartassistant.app.ui.screens
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -46,7 +47,7 @@ fun CustomersScreen(nav: NavController) {
         floatingActionButton = {
             FloatingActionButton(onClick = { nav.navigate(Routes.ADD_CUSTOMER) },
                 containerColor = AppColors.PrimaryBlue) {
-                Icon(Icons.Rounded.Add, "إضافة عميل", tint = Color.White)
+                Icon(Icons.Rounded.Add, contentDescription = "إضافة عميل", tint = Color.White)
             }
         }
     ) { padding ->
@@ -55,7 +56,7 @@ fun CustomersScreen(nav: NavController) {
                 value = query, onValueChange = { query = it },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("ابحث عن عميل...") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
                 singleLine = true)
 
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
@@ -71,31 +72,39 @@ fun CustomersScreen(nav: NavController) {
                 }
             }
 
-            if (pager.loadState.refresh is LoadState.Loading) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+            when {
+                pager.loadState.refresh is LoadState.Loading -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
                 }
-            } else if (pager.itemCount == 0) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Icon(Icons.Rounded.PeopleOutline, null, tint = AppColors.Gray,
-                            modifier = Modifier.size(64.dp))
-                        Text("لا يوجد عملاء بعد", color = AppColors.Gray)
-                        Button(onClick = { nav.navigate(Routes.ADD_CUSTOMER) },
-                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryBlue)) {
-                            Text("إضافة عميل", color = Color.White)
+                pager.itemCount == 0 -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Icon(Icons.Rounded.PeopleOutline, contentDescription = null,
+                                tint = AppColors.Gray, modifier = Modifier.size(64.dp))
+                            Text("لا يوجد عملاء بعد", color = AppColors.Gray)
+                            Button(onClick = { nav.navigate(Routes.ADD_CUSTOMER) },
+                                colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryBlue)) {
+                                Text("إضافة عميل", color = Color.White)
+                            }
                         }
                     }
                 }
-            } else {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(pager.itemCount) { index ->
-                        pager[index]?.let { row ->
-                            CustomerCard(row.customer.name, row.customer.phone ?: "—",
-                                row.customer.balance, row.dueDate, row.dueTime) {
-                                nav.navigate(Routes.customerDetail(row.customer.id))
+                else -> {
+                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        val items = pager.itemCount
+                        for (index in 0 until items) {
+                            val row = pager[index]
+                            if (row != null) {
+                                item(key = row.customer.id) {
+                                    CustomerCard(row.customer.name, row.customer.phone ?: "—",
+                                        row.customer.balance, row.dueDate, row.dueTime) {
+                                        nav.navigate(Routes.customerDetail(row.customer.id))
+                                    }
+                                }
                             }
                         }
                     }

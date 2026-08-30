@@ -46,7 +46,7 @@ fun ProductsScreen(nav: NavController) {
         floatingActionButton = {
             FloatingActionButton(onClick = { nav.navigate(Routes.ADD_PRODUCT) },
                 containerColor = AppColors.PrimaryBlue) {
-                Icon(Icons.Rounded.Add, "إضافة صنف", tint = Color.White)
+                Icon(Icons.Rounded.Add, contentDescription = "إضافة صنف", tint = Color.White)
             }
         }
     ) { padding ->
@@ -55,7 +55,7 @@ fun ProductsScreen(nav: NavController) {
                 value = query, onValueChange = { query = it },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("ابحث عن صنف...") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true)
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) }, singleLine = true)
 
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -68,29 +68,37 @@ fun ProductsScreen(nav: NavController) {
                 }
             }
 
-            if (pager.loadState.refresh is LoadState.Loading) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            } else if (pager.itemCount == 0) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Icon(Icons.Rounded.Inventory, null, tint = AppColors.Gray,
-                            modifier = Modifier.size(64.dp))
-                        Text("لا توجد أصناف بعد", color = AppColors.Gray)
-                        Button(onClick = { nav.navigate(Routes.ADD_PRODUCT) },
-                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryBlue)) {
-                            Text("إضافة صنف", color = Color.White)
+            when {
+                pager.loadState.refresh is LoadState.Loading -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                }
+                pager.itemCount == 0 -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Icon(Icons.Rounded.Inventory, contentDescription = null,
+                                tint = AppColors.Gray, modifier = Modifier.size(64.dp))
+                            Text("لا توجد أصناف بعد", color = AppColors.Gray)
+                            Button(onClick = { nav.navigate(Routes.ADD_PRODUCT) },
+                                colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryBlue)) {
+                                Text("إضافة صنف", color = Color.White)
+                            }
                         }
                     }
                 }
-            } else {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(pager.itemCount) { index ->
-                        pager[index]?.let { row ->
-                            ProductCard(row.product.nameRaw, row.product.code ?: "—",
-                                row.qty ?: 0.0, row.minQty ?: 0.0) {
-                                nav.navigate(Routes.productDetail(row.product.id))
+                else -> {
+                    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        val items = pager.itemCount
+                        for (index in 0 until items) {
+                            val row = pager[index]
+                            if (row != null) {
+                                item(key = row.product.id) {
+                                    ProductCard(row.product.nameRaw, row.product.code ?: "—",
+                                        row.qty ?: 0.0, row.minQty ?: 0.0) {
+                                        nav.navigate(Routes.productDetail(row.product.id))
+                                    }
+                                }
                             }
                         }
                     }

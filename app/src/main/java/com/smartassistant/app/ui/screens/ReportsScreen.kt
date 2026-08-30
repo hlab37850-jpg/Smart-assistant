@@ -58,7 +58,8 @@ fun ReportCard(title: String, subtitle: String, icon: ImageVector, onClick: () -
             Surface(Modifier.size(44.dp), shape = MaterialTheme.shapes.medium,
                 color = AppColors.PrimaryBlue.copy(alpha = 0.1f)) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = AppColors.PrimaryBlue, Modifier.size(24.dp))
+                    Icon(imageVector = icon, contentDescription = null,
+                        tint = AppColors.PrimaryBlue, modifier = Modifier.size(24.dp))
                 }
             }
             Column {
@@ -90,7 +91,7 @@ fun ReportView(type: String, onBack: () -> Unit) {
             title = { Text("معاينة التقرير", color = Color.White) },
             navigationIcon = {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, "رجوع", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "رجوع", tint = Color.White)
                 }
             },
             actions = {
@@ -101,7 +102,9 @@ fun ReportView(type: String, onBack: () -> Unit) {
                         val ok = Export.csv(ctx, "report_${type}_${System.currentTimeMillis()}.csv", Csv.encode(data))
                         msg = if (ok) "تم التصدير إلى مجلد التنزيلات" else "فشل التصدير"
                     }
-                }) { Icon(Icons.Rounded.FileDownload, "تصدير", tint = Color.White) }
+                }) {
+                    Icon(imageVector = Icons.Rounded.FileDownload, contentDescription = "تصدير", tint = Color.White)
+                }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = AppColors.NavyDark))
     }) { padding ->

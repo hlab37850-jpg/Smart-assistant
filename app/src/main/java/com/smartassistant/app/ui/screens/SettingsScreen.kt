@@ -2,7 +2,6 @@ package com.smartassistant.app.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
@@ -11,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -40,7 +40,7 @@ fun SettingsScreen(nav: NavController) {
             title = { Text("الإعدادات", color = Color.White) },
             navigationIcon = {
                 IconButton(onClick = { nav.popBackStack() }) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, "رجوع", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "رجوع", tint = Color.White)
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = AppColors.NavyDark))
@@ -89,7 +89,7 @@ fun SettingsScreen(nav: NavController) {
                                 msg = if (b != null) "تم إنشاء نسخة (${b.size / 1024} KB)" else "فشل النسخ"
                             }
                         }, colors = ButtonDefaults.buttonColors(containerColor = AppColors.GreenSuccess)) {
-                            Icon(Icons.Rounded.Backup, null, Modifier.size(20.dp))
+                            Icon(imageVector = Icons.Rounded.Backup, contentDescription = null, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(8.dp))
                             Text("إنشاء نسخة الآن", color = Color.White)
                         }
@@ -184,13 +184,16 @@ fun SettingsScreen(nav: NavController) {
 }
 
 @Composable
-fun SettingItem(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+fun SettingItem(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
     Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Surface(Modifier.size(44.dp), shape = MaterialTheme.shapes.medium,
                 color = AppColors.PrimaryBlue.copy(alpha = 0.1f)) {
-                Box(contentAlignment = Alignment.Center) { Icon(icon, null, tint = AppColors.PrimaryBlue, Modifier.size(24.dp)) }
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(imageVector = icon, contentDescription = null,
+                        tint = AppColors.PrimaryBlue, modifier = Modifier.size(24.dp))
+                }
             }
             Column {
                 Text(title, style = MaterialTheme.typography.titleMedium)

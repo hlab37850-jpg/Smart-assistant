@@ -84,7 +84,7 @@ fun ImportScreen(nav: NavController) {
             title = { Text("الاستيراد الذكي", color = Color.White) },
             navigationIcon = {
                 IconButton(onClick = { nav.popBackStack() }) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, "رجوع", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "رجوع", tint = Color.White)
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = AppColors.NavyDark))
@@ -159,13 +159,16 @@ fun ImportCard(title: String, subtitle: String, icon: androidx.compose.ui.graphi
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Surface(Modifier.size(48.dp), shape = MaterialTheme.shapes.medium,
                 color = AppColors.CyanAccent.copy(alpha = 0.1f)) {
-                Box(contentAlignment = Alignment.Center) { Icon(icon, null, tint = AppColors.CyanAccent, Modifier.size(26.dp)) }
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(imageVector = icon, contentDescription = null,
+                        tint = AppColors.CyanAccent, modifier = Modifier.size(26.dp))
+                }
             }
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = AppColors.Gray)
             }
-            Icon(Icons.Rounded.FileOpen, "اختيار ملف", tint = AppColors.PrimaryBlue)
+            Icon(imageVector = Icons.Rounded.FileOpen, contentDescription = "اختيار ملف", tint = AppColors.PrimaryBlue)
         }
     }
 }
