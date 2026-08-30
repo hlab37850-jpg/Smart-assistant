@@ -69,12 +69,13 @@ class ReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             type = "DUE_REMINDER", title = label,
             body = "${cust.name} — الرصيد: ${Fmt.money(cust.balance)} — الاستحقاق: ${due.date} ${due.time}",
             route = "customer/${cust.id}"))
-        NotificationHelper(applicationContext).post(CH_DUES, label,
+        NotificationHelper(applicationContext).post(
+            NotificationHelper.CH_DUES, label,
             ReminderBuilder.build(shop?.name ?: "المحل", cust.name, cust.balance,
-                due.date, due.time, shop?.phone ?: "", shop?.address ?: ""), dueId.toInt())
+                due.date, due.time, shop?.phone ?: "", shop?.address ?: ""),
+            "customer/${cust.id}", dueId.toInt())
         Result.success()
     }
-    companion object { const val CH_DUES = NotificationHelper.CH_DUES }
 }
 
 class DailyScanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
