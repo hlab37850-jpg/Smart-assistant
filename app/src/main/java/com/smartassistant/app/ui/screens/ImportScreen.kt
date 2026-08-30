@@ -36,10 +36,6 @@ fun ImportScreen(nav: NavController) {
     var meta by remember { mutableStateOf<Pair<String, String>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) startImport(uri)
-    }
-
     fun startImport(uri: Uri) {
         scope.launch {
             error = null; preview = null; progress = "جاري نسخ الملف..."
@@ -77,6 +73,10 @@ fun ImportScreen(nav: NavController) {
             meta = ext.uppercase() to name
             preview = result
         }
+    }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) startImport(uri)
     }
 
     Scaffold(topBar = {

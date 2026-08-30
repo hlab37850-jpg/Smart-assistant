@@ -120,7 +120,7 @@ fun Dashboard(nav: NavController) {
                             }
                             Box(Modifier.size(110.dp), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(
-                                    progress = { if (theyOwe + weOwe > 0) theyOwe / (theyOwe + weOwe) else 0.5f },
+                                    progress = { if (theyOwe + weOwe > 0) (theyOwe / (theyOwe + weOwe)).toFloat() else 0.5f },
                                     modifier = Modifier.fillMaxSize(),
                                     color = AppColors.GreenSuccess, trackColor = AppColors.RedDanger,
                                     strokeWidth = 14.dp)

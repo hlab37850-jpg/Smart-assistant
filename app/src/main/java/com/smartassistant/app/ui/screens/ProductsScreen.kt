@@ -6,7 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Inventory2Outlined
+import androidx.compose.material.icons.rounded.Inventory
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -74,7 +74,7 @@ fun ProductsScreen(nav: NavController) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Icon(Icons.Rounded.Inventory2Outlined, null, tint = AppColors.Gray,
+                        Icon(Icons.Rounded.Inventory, null, tint = AppColors.Gray,
                             modifier = Modifier.size(64.dp))
                         Text("لا توجد أصناف بعد", color = AppColors.Gray)
                         Button(onClick = { nav.navigate(Routes.ADD_PRODUCT) },

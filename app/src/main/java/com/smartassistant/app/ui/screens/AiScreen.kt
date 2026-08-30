@@ -23,7 +23,6 @@ import com.smartassistant.app.util.DataPreservation
 import com.smartassistant.app.util.Fmt
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.firstOrNull
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,21 +107,21 @@ object LocalAssistant {
         val t = q.replace(Regex("[أإآ]"), "ا").replace("ة", "ه").replace(Regex("\\s+"), " ").trim()
         return when {
             t.contains("متاخر") || t.contains("تاخر") -> {
-                val list = firstOrNull(repo.dues("OVERDUE")) ?: emptyList()
+                val list = repo.dues("OVERDUE").firstOrNull() ?: emptyList()
                 if (list.isEmpty()) "لا يوجد عملاء متأخرون 🎉"
                 else "العملاء المتأخرون (${list.size}):\n" + list.take(7).joinToString("\n") {
                     "• ${it.customerName} — ${Fmt.money(it.balance)} — منذ ${Fmt.daysSince(it.due.date)} يوم"
                 }
             }
             t.contains("ناقص") || t.contains("نواقص") || t.contains("منخفض") -> {
-                val list = firstOrNull(repo.lowStock) ?: emptyList()
+                val list = repo.lowStock.firstOrNull() ?: emptyList()
                 if (list.isEmpty()) "المخزون بحالة جيدة ✅"
                 else "الأصناف الناقصة/المنخفضة (${list.size}):\n" + list.joinToString("\n") {
                     "• ${it.product.nameRaw} — الكمية: ${Fmt.money(it.qty ?: 0.0)}"
                 }
             }
             t.contains("منسي") -> {
-                val list = firstOrNull(repo.forgotten) ?: emptyList()
+                val list = repo.forgotten.firstOrNull() ?: emptyList()
                 if (list.isEmpty()) "لا يوجد عملاء منسيون ✅"
                 else "العملاء المنسيون (${list.size}):\n" + list.take(7).joinToString("\n") { "• ${it.customerName}" }
             }

@@ -2,12 +2,15 @@ package com.smartassistant.app.importer
 
 import android.database.sqlite.SQLiteDatabase
 import com.smartassistant.app.data.local.entity.Customer
+import com.smartassistant.app.data.local.entity.ImportError
 import com.smartassistant.app.data.local.entity.ImportRecord
 import com.smartassistant.app.data.local.entity.ImportSession
 import com.smartassistant.app.data.local.entity.Product
 import com.smartassistant.app.data.repo.MainRepo
 import com.smartassistant.app.util.DataPreservation
 import com.smartassistant.app.util.Matching
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
 
 data class ImportResult(
@@ -45,7 +48,7 @@ object ImportEngine {
         var ignored = 0
         for (r in dataRows) {
             val joined = r.joinToString(" ")
-            if (joined.isBlank() || SKIP.contains(joined)) { ignored++; continue }
+            if (joined.isBlank() || SKIP.containsMatchIn(joined)) { ignored++; continue }
             val name = DataPreservation.keepRaw(r.getOrElse(nameCol) { "" })
             val phone = if (phoneCol >= 0) DataPreservation.parsePhone(r.getOrElse(phoneCol) { null }) else null
             val balRaw = if (balCol >= 0) r.getOrElse(balCol) { "" } else null
@@ -88,15 +91,15 @@ object ImportEngine {
 
     fun fromPdf(file: File, existing: List<Customer>, shopName: String?): ImportResult {
         val rows = mutableListOf<List<String>>()
-        com.tom_roush.pdfbox.pdmodel.PDDocument.load(file).use { doc ->
-            val stripper = com.tom_roush.pdfbox.text.PDFTextStripper()
-            val text = stripper.text
+        PDDocument.load(file).use { doc ->
+            val stripper = PDFTextStripper()
+            val text = stripper.getText(doc)
             text.lines().forEach { line ->
                 val tokens = line.trim().split(Regex("\\s+"))
                 if (tokens.size >= 2) {
                     val joined = line.trim()
                     if (shopName != null && joined.contains(shopName)) return@forEach
-                    if (SKIP.contains(joined)) return@forEach
+                    if (SKIP.containsMatchIn(joined)) return@forEach
                     val lastNum = tokens.lastOrNull { DataPreservation.parseAmount(it).value != null }
                     val name = tokens.dropLast(1).joinToString(" ")
                     rows += listOf(name, lastNum ?: "")
@@ -157,11 +160,8 @@ object ImportEngine {
                 action = "ADD", sourceRaw = p.nameRaw, confidence = 1.0))
         }
         result.review.forEach { r ->
-            repo.db.importDao().error(com.smartassistant.app.data.local.entity.ImportError(
-                sessionId = sid, message = "يحتاج إلى مراجعة", rawLine = r))
-        }
-        val s = repo.db.importDao().let { dao ->
-            null
+            repo.db.importDao().record(ImportRecord(sessionId = sid, kind = "ERROR",
+                action = "REVIEW", sourceRaw = r, confidence = 0.0))
         }
         repo.db.importDao().updateSession(ImportSession(id = sid, fileName = fileName, type = type,
             finishedAt = System.currentTimeMillis(), addedCustomers = addC, updatedCustomers = upC,
