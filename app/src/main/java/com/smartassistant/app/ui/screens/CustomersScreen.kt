@@ -39,6 +39,11 @@ fun CustomersScreen(nav: NavController) {
         Pager(config = PagingConfig(pageSize = 20, enablePlaceholders = false)) { pagingSource }
     }.flow.collectAsLazyPagingItems()
 
+    // استخراج القائمة الحالية كقائمة Kotlin عادية
+    val currentItems = remember(pager.itemCount, pager.loadState) {
+        (0 until pager.itemCount).mapNotNull { pager[it] }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("العملاء", color = Color.White) },
@@ -78,7 +83,7 @@ fun CustomersScreen(nav: NavController) {
                         CircularProgressIndicator()
                     }
                 }
-                pager.itemCount == 0 -> {
+                pager.itemCount == 0 && pager.loadState.refresh is LoadState.NotLoading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -96,20 +101,17 @@ fun CustomersScreen(nav: NavController) {
                     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(
-                            pager.itemCount,
-                            key = { index -> pager.peek(index)?.customer?.id ?: index }
-                        ) { index ->
-                            val row = pager[index]
-                            if (row != null) {
-                                CustomerCard(
-                                    name = row.customer.name,
-                                    phone = row.customer.phone ?: "—",
-                                    balance = row.customer.balance,
-                                    dueDate = row.dueDate,
-                                    dueTime = row.dueTime,
-                                    onClick = { nav.navigate(Routes.customerDetail(row.customer.id)) }
-                                )
-                            }
+                            items = currentItems,
+                            key = { row -> row.customer.id }
+                        ) { row ->
+                            CustomerCard(
+                                name = row.customer.name,
+                                phone = row.customer.phone ?: "—",
+                                balance = row.customer.balance,
+                                dueDate = row.dueDate,
+                                dueTime = row.dueTime,
+                                onClick = { nav.navigate(Routes.customerDetail(row.customer.id)) }
+                            )
                         }
                     }
                 }

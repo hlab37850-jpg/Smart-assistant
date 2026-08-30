@@ -39,6 +39,11 @@ fun ProductsScreen(nav: NavController) {
         Pager(config = PagingConfig(pageSize = 20, enablePlaceholders = false)) { pagingSource }
     }.flow.collectAsLazyPagingItems()
 
+    // استخراج القائمة الحالية كقائمة Kotlin عادية
+    val currentItems = remember(pager.itemCount, pager.loadState) {
+        (0 until pager.itemCount).mapNotNull { pager[it] }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("الأصناف والمخزون", color = Color.White) },
@@ -73,7 +78,7 @@ fun ProductsScreen(nav: NavController) {
                 pager.loadState.refresh is LoadState.Loading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 }
-                pager.itemCount == 0 -> {
+                pager.itemCount == 0 && pager.loadState.refresh is LoadState.NotLoading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -91,19 +96,16 @@ fun ProductsScreen(nav: NavController) {
                     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(
-                            pager.itemCount,
-                            key = { index -> pager.peek(index)?.product?.id ?: index }
-                        ) { index ->
-                            val row = pager[index]
-                            if (row != null) {
-                                ProductCard(
-                                    name = row.product.nameRaw,
-                                    code = row.product.code ?: "—",
-                                    qty = row.qty ?: 0.0,
-                                    minQty = row.minQty ?: 0.0,
-                                    onClick = { nav.navigate(Routes.productDetail(row.product.id)) }
-                                )
-                            }
+                            items = currentItems,
+                            key = { row -> row.product.id }
+                        ) { row ->
+                            ProductCard(
+                                name = row.product.nameRaw,
+                                code = row.product.code ?: "—",
+                                qty = row.qty ?: 0.0,
+                                minQty = row.minQty ?: 0.0,
+                                onClick = { nav.navigate(Routes.productDetail(row.product.id)) }
+                            )
                         }
                     }
                 }
