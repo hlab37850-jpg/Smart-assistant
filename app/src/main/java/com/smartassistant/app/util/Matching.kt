@@ -21,11 +21,11 @@ object Matching {
         return dp[b.length]
     }
     fun similarity(a: String, b: String): Double {
-        val na = DataPreservation.normalizeForMatch(a); val nb = DataPreservation.normalizeForMatch(b)
+        val na = DataPreservation.normalizeForMatch(a)
+        val nb = DataPreservation.normalizeForMatch(b)
         if (na.isEmpty() || nb.isEmpty()) return 0.0
         return 1.0 - levenshtein(na, nb).toDouble() / maxOf(na.length, nb.length)
     }
-    /** ثقة المطابقة: ID أصلي ← هاتف ← كود ← اسم */
     fun confidence(existing: Customer, originalId: String?, phone: String?, code: String?, name: String): Double {
         if (originalId != null && existing.originalId == originalId) return 1.0
         val pk = phoneKey(phone); val ek = phoneKey(existing.phone)

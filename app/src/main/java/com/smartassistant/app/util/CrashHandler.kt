@@ -17,16 +17,10 @@ object CrashHandler {
             def?.uncaughtException(t, e) ?: kotlin.system.exitProcess(1)
         }
     }
-
     private fun write(ctx: Context, e: Throwable) {
-        val sw = StringWriter()
-        e.printStackTrace(PrintWriter(sw))
+        val sw = StringWriter(); e.printStackTrace(PrintWriter(sw))
         val text = "Time: ${Date()}\nDevice: ${Build.MODEL} API ${Build.VERSION.SDK_INT}\n\n$sw"
-
-        // 1) نسخة داخلية دائماً (لأغراض النظام)
         try { ctx.filesDir.resolve("crash_log.txt").writeText(text) } catch (_: Exception) {}
-
-        // 2) نسخة في مجلد التنزيلات عبر MediaStore.Files (API عام ومستقر)
         if (Build.VERSION.SDK_INT >= 29) {
             try {
                 val cv = ContentValues().apply {
@@ -38,8 +32,7 @@ object CrashHandler {
                 val uri = ctx.contentResolver.insert(MediaStore.Files.getContentUri("external"), cv)
                 uri?.let {
                     ctx.contentResolver.openOutputStream(it)?.use { o -> o.write(text.toByteArray()) }
-                    cv.clear()
-                    cv.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    cv.clear(); cv.put(MediaStore.MediaColumns.IS_PENDING, 0)
                     ctx.contentResolver.update(it, cv, null, null)
                 }
             } catch (_: Exception) {}

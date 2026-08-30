@@ -86,45 +86,27 @@ class DailyScanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(
         val db = AppDatabase.get(applicationContext)
         val helper = NotificationHelper(applicationContext)
         val today = Fmt.today()
-        val tomorrow = Fmt.plusDays(1)
-        
-        val todayDues = db.dueDao().today(today).firstOrNull() ?: emptyList()
-        if (todayDues.isNotEmpty()) {
+        val t = db.dueDao().today(today).firstOrNull() ?: emptyList()
+        if (t.isNotEmpty()) {
             db.notificationDao().insert(AppNotification(
-                type = "DUE_TODAY",
-                title = "استحقاقات اليوم",
-                body = "${todayDues.size} استحقاق اليوم",
-                route = "dues"))
-            helper.post(
-                channel = NotificationHelper.CH_DUES,
-                title = "استحقاقات اليوم",
-                body = "${todayDues.size} عميل يستحق اليوم",
-                route = "dues",
-                id = 101)
+                type = "DUE_TODAY", title = "استحقاقات اليوم",
+                body = "${t.size} استحقاق اليوم", route = "dues"))
+            helper.post(channel = NotificationHelper.CH_DUES, title = "استحقاقات اليوم",
+                body = "${t.size} عميل يستحق اليوم", route = "dues", id = 101)
         }
-        
-        val tomorrowDues = db.dueDao().tomorrow(tomorrow).firstOrNull() ?: emptyList()
-        if (tomorrowDues.isNotEmpty()) {
+        val m = db.dueDao().tomorrow(Fmt.plusDays(1)).firstOrNull() ?: emptyList()
+        if (m.isNotEmpty()) {
             db.notificationDao().insert(AppNotification(
-                type = "DUE_TOMORROW",
-                title = "استحقاق غداً",
-                body = "${tomorrowDues.size} استحقاق غداً",
-                route = "dues"))
+                type = "DUE_TOMORROW", title = "استحقاق غداً",
+                body = "${m.size} استحقاق غداً", route = "dues"))
         }
-        
-        val overdueDues = db.dueDao().overdue(today).firstOrNull() ?: emptyList()
-        if (overdueDues.isNotEmpty()) {
+        val od = db.dueDao().overdue(today).firstOrNull() ?: emptyList()
+        if (od.isNotEmpty()) {
             db.notificationDao().insert(AppNotification(
-                type = "DUE_OVERDUE",
-                title = "استحقاقات متأخرة",
-                body = "${overdueDues.size} استحقاق متأخر",
-                route = "dues"))
-            helper.post(
-                channel = NotificationHelper.CH_DUES,
-                title = "استحقاقات متأخرة",
-                body = "${overdueDues.size} عميل متأخر",
-                route = "dues",
-                id = 102)
+                type = "DUE_OVERDUE", title = "استحقاقات متأخرة",
+                body = "${od.size} استحقاق متأخر", route = "dues"))
+            helper.post(channel = NotificationHelper.CH_DUES, title = "استحقاقات متأخرة",
+                body = "${od.size} عميل متأخر", route = "dues", id = 102)
         }
         Result.success()
     }
@@ -137,22 +119,24 @@ object ReminderScheduler {
         AFTER_3("متابعة بعد 3 أيام"), AFTER_7("متابعة بعد 7 أيام")
     }
     fun schedule(ctx: Context, due: DueDate) {
-        val wm = WorkManager.getInstance(ctx)
-        val base = LocalDateTime.of(LocalDate.parse(due.date), LocalTime.parse(due.time))
-        val slots = mutableListOf<Pair<Slot, LocalDateTime>>()
-        if (due.remBeforeDay == 1) slots += Slot.BEFORE_DAY to base.minusDays(1)
-        if (due.remBeforeHours > 0) slots += Slot.BEFORE_HOURS to base.minusHours(due.remBeforeHours.toLong())
-        if (due.remAt == 1) slots += Slot.AT to base
-        if (due.remAfter1 == 1) slots += Slot.AFTER_1 to base.plusDays(1)
-        if (due.remAfter3 == 1) slots += Slot.AFTER_3 to base.plusDays(3)
-        if (due.remAfter7 == 1) slots += Slot.AFTER_7 to base.plusDays(7)
-        for ((slot, at) in slots) {
-            val delay = Duration.between(LocalDateTime.now(), at).toMillis()
-            if (delay < 0) continue
-            wm.enqueueUniqueWork("rem_${due.id}_${slot.name}", ExistingWorkPolicy.REPLACE,
-                OneTimeWorkRequestBuilder<ReminderWorker>()
-                    .setInitialDelay(delay, TimeUnit.MILLISECONDS)
-                    .setInputData(workDataOf("dueId" to due.id, "label" to slot.label)).build())
+        runCatching {
+            val wm = WorkManager.getInstance(ctx)
+            val base = LocalDateTime.of(LocalDate.parse(due.date), LocalTime.parse(due.time))
+            val slots = mutableListOf<Pair<Slot, LocalDateTime>>()
+            if (due.remBeforeDay == 1) slots += Slot.BEFORE_DAY to base.minusDays(1)
+            if (due.remBeforeHours > 0) slots += Slot.BEFORE_HOURS to base.minusHours(due.remBeforeHours.toLong())
+            if (due.remAt == 1) slots += Slot.AT to base
+            if (due.remAfter1 == 1) slots += Slot.AFTER_1 to base.plusDays(1)
+            if (due.remAfter3 == 1) slots += Slot.AFTER_3 to base.plusDays(3)
+            if (due.remAfter7 == 1) slots += Slot.AFTER_7 to base.plusDays(7)
+            for ((slot, at) in slots) {
+                val delay = Duration.between(LocalDateTime.now(), at).toMillis()
+                if (delay < 0) continue
+                wm.enqueueUniqueWork("rem_${due.id}_${slot.name}", ExistingWorkPolicy.REPLACE,
+                    OneTimeWorkRequestBuilder<ReminderWorker>()
+                        .setInitialDelay(delay, TimeUnit.MILLISECONDS)
+                        .setInputData(workDataOf("dueId" to due.id, "label" to slot.label)).build())
+            }
         }
     }
     fun scheduleDailyScan(ctx: Context) {

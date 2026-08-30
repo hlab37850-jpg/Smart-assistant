@@ -1,6 +1,5 @@
 package com.smartassistant.app.util
 
-/** طبقة الحفاظ على البيانات: النص الخام يبقى كما هو تماماً، والقيمة المحلَّلة منفصلة للمقارنة فقط. */
 object DataPreservation {
     fun keepRaw(s: String?): String = s?.trim()?.replace(Regex("[\\u200B\\uFEFF]"), "") ?: ""
 
@@ -9,7 +8,6 @@ object DataPreservation {
 
     fun normalizeDigits(s: String): String = s.map { AR[it] ?: it }.joinToString("")
 
-    /** "5000"→5000 ، "-5000"→-5000 ، "(5000)"→-5000 — بدون تصفير أبداً */
     fun parseAmount(raw: String?): ParsedAmount {
         val kept = keepRaw(raw)
         if (kept.isEmpty()) return ParsedAmount(null, kept)
@@ -27,7 +25,6 @@ object DataPreservation {
         return d.ifEmpty { null }
     }
 
-    /** للمقارنة فقط — لا يُخزَّن بدل النص الخام */
     fun normalizeForMatch(s: String): String =
         normalizeDigits(s).lowercase().replace(Regex("[\\s\\-_.×x*()+/]"), " ").trim()
 }

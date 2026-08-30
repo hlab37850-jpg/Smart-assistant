@@ -1,0 +1,25 @@
+package com.smartassistant.app.ui.navigation
+
+object Routes {
+    const val ONBOARDING = "onboarding"
+    const val SHOP_SETUP = "shop_setup"
+    const val HOME = "home"
+    const val CUSTOMERS = "customers"
+    const val PRODUCTS = "products"
+    const val REPORTS = "reports"
+    const val DUES = "dues"
+    const val NOTIFICATIONS = "notifications"
+    const val SETTINGS = "settings"
+    const val IMPORT = "import"
+    const val AI = "ai"
+    const val ADD_CUSTOMER = "add_customer"
+    const val EDIT_CUSTOMER = "edit_customer/{id}"
+    const val CUSTOMER_DETAIL = "customer_detail/{id}"
+    const val ADD_PRODUCT = "add_product"
+    const val EDIT_PRODUCT = "edit_product/{id}"
+    const val PRODUCT_DETAIL = "product_detail/{id}"
+    fun customerDetail(id: Long) = "customer_detail/$id"
+    fun editCustomer(id: Long) = "edit_customer/$id"
+    fun productDetail(id: Long) = "product_detail/$id"
+    fun editProduct(id: Long) = "edit_product/$id"
+}

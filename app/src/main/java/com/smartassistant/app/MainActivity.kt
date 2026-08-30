@@ -6,14 +6,17 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
-import androidx.navigation.compose.rememberNavController
 import com.smartassistant.app.data.prefs.AppPrefs
 import com.smartassistant.app.data.repo.ShopRepository
-import com.smartassistant.app.ui.navigation.AppNav
+import com.smartassistant.app.ui.components.AppShell
 import com.smartassistant.app.ui.navigation.Routes
 import com.smartassistant.app.ui.screens.Splash
 import com.smartassistant.app.ui.theme.SmartAssistantTheme
@@ -31,29 +34,36 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         CrashHandler.install(this)
 
+        val prefs = AppPrefs.get(this)
+        val deepLink = intent?.getStringExtra("route")
+
         splash.setKeepOnScreenCondition { startRoute.value == null }
         lifecycleScope.launch {
-            val prefs = AppPrefs.get(this@MainActivity)
             val repo = ShopRepository(this@MainActivity)
             val onb = prefs.onboardingDone.first()
             val hasShop = repo.current() != null
             startRoute.value = when {
                 !onb -> Routes.ONBOARDING
                 !hasShop -> Routes.SHOP_SETUP
-                else -> Routes.DASHBOARD
+                else -> Routes.HOME
             }
         }
 
         setContent {
-            SmartAssistantTheme(ThemeMode.SYSTEM) {
+            val theme by prefs.themeMode.collectAsState(initial = "SYSTEM")
+            val mode = when (theme) {
+                "LIGHT" -> ThemeMode.LIGHT
+                "DARK" -> ThemeMode.DARK
+                else -> ThemeMode.SYSTEM
+            }
+            SmartAssistantTheme(mode) {
                 Surface(Modifier.fillMaxSize()) {
                     var showSplash by remember { mutableStateOf(true) }
                     val route = startRoute.value
                     if (route == null || showSplash) {
                         Splash(onFinish = { showSplash = false })
                     } else {
-                        val nav = rememberNavController()
-                        AppNav(nav, route)
+                        AppShell(route, deepLink)
                     }
                 }
             }

@@ -2,11 +2,29 @@ package com.smartassistant.app.data.local.entity
 
 import androidx.room.*
 
-@Entity(tableName = "customers", indices = [
-    Index(value = ["name"]),
-    Index(value = ["phone"]),
-    Index(value = ["code"])
-])
+@Entity(tableName = "shop_settings")
+data class ShopSettings(
+    @PrimaryKey val id: Int = 1,
+    val name: String = "",
+    val phone: String = "",
+    val whatsapp: String = "",
+    val address: String = "",
+    val logoPath: String? = null,
+    val currency: String = "",
+)
+
+@Entity(tableName = "users")
+data class User(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val username: String,
+    val pinHash: String,
+    val role: String,
+    val permissions: String,
+    val active: Int = 1,
+)
+
+@Entity(tableName = "customers", indices = [Index("name"), Index("phone"), Index("code")])
 data class Customer(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val originalId: String? = null,
@@ -30,10 +48,7 @@ data class CustomerNote(
     val createdAt: Long = System.currentTimeMillis(),
 )
 
-@Entity(tableName = "dues", indices = [
-    Index(value = ["date"]),
-    Index(value = ["customerId"])
-])
+@Entity(tableName = "dues", indices = [Index("date"), Index("customerId")])
 data class DueDate(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val customerId: Long,
@@ -49,7 +64,7 @@ data class DueDate(
     val createdAt: Long = System.currentTimeMillis(),
 )
 
-@Entity(tableName = "notifications", indices = [Index(value = ["read"])])
+@Entity(tableName = "notifications", indices = [Index("read")])
 data class AppNotification(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val type: String,
@@ -67,10 +82,7 @@ data class Category(
     val archived: Int = 0,
 )
 
-@Entity(tableName = "products", indices = [
-    Index(value = ["nameRaw"]),
-    Index(value = ["code"])
-])
+@Entity(tableName = "products", indices = [Index("nameRaw"), Index("code")])
 data class Product(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val originalId: String? = null,
@@ -82,10 +94,7 @@ data class Product(
     val createdAt: Long = System.currentTimeMillis(),
 )
 
-@Entity(tableName = "inventory", indices = [
-    Index(value = ["productId"]),
-    Index(value = ["qty"])
-])
+@Entity(tableName = "inventory", indices = [Index("productId"), Index("qty")])
 data class Inventory(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val productId: Long,

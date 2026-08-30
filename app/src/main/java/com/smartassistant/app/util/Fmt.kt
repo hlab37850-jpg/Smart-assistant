@@ -15,8 +15,9 @@ object Fmt {
     fun money(v: Double): String = nf.format(v)
     fun today(): String = LocalDate.now().toString()
     fun plusDays(n: Long): String = LocalDate.now().plusDays(n).toString()
-    fun daysSince(iso: String): Long = ChronoUnit.DAYS.between(LocalDate.parse(iso), LocalDate.now())
+    fun daysSince(iso: String): Long =
+        runCatching { ChronoUnit.DAYS.between(LocalDate.parse(iso), LocalDate.now()) }.getOrDefault(0)
     fun nowTime(): String = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
-    fun ts(ts: Long): String = DateTimeFormatter.ofPattern("MM/dd HH:mm")
-        .format(LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(ts), java.time.ZoneId.systemDefault()))
+    fun ts(ts: Long): String = DateTimeFormatter.ofPattern("MM/dd HH:mm").format(
+        LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(ts), java.time.ZoneId.systemDefault()))
 }

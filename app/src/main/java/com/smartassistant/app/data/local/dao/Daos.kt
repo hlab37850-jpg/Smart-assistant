@@ -27,6 +27,21 @@ data class DueWithCustomer(
 )
 
 @Dao
+interface ShopDao {
+    @Query("SELECT * FROM shop_settings WHERE id = 1") fun observe(): Flow<ShopSettings?>
+    @Query("SELECT * FROM shop_settings WHERE id = 1") suspend fun get(): ShopSettings?
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun save(s: ShopSettings)
+}
+
+@Dao
+interface UserDao {
+    @Query("SELECT * FROM users WHERE active = 1") fun all(): Flow<List<User>>
+    @Query("SELECT * FROM users WHERE role = 'ADMIN' LIMIT 1") suspend fun firstAdmin(): User?
+    @Insert suspend fun insert(u: User): Long
+    @Update suspend fun update(u: User)
+}
+
+@Dao
 interface CustomerDao {
     @Query("""SELECT c.*, d.id AS dueId, d.date AS dueDate, d.time AS dueTime, d.followedUp AS dueFollowed
         FROM customers c LEFT JOIN dues d ON d.id = (
@@ -59,6 +74,7 @@ interface CustomerDao {
     @Query("SELECT IFNULL(SUM(balance),0) FROM customers WHERE balance > 0") fun totalTheyOwe(): Flow<Double>
     @Query("SELECT IFNULL(SUM(-balance),0) FROM customers WHERE balance < 0") fun totalWeOwe(): Flow<Double>
     @Query("SELECT * FROM customers WHERE id = :id") suspend fun byId(id: Long): Customer?
+    @Query("SELECT * FROM customers WHERE archived = 0") suspend fun allSync(): List<Customer>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(c: Customer): Long
     @Update suspend fun update(c: Customer)
     @Query("UPDATE customers SET archived = 1 WHERE id = :id") suspend fun archive(id: Long)
@@ -77,10 +93,26 @@ interface ProductDao {
         ORDER BY p.nameRaw""")
     fun searchPaged(q: String): PagingSource<Int, ProductRow>
 
+    @Query("""SELECT p.*, i.qty AS qty, i.minQty AS minQty, i.expiryDate AS expiry
+        FROM products p LEFT JOIN inventory i ON i.productId = p.id
+        WHERE p.archived = 0 AND
+        CASE :tab WHEN 'LOW' THEN i.qty <= i.minQty AND i.qty > 0
+                  WHEN 'OUT' THEN i.qty <= 0
+                  WHEN 'EXP' THEN i.expiry IS NOT NULL AND i.expiry <= :today
+                  ELSE 1 END
+        ORDER BY p.nameRaw""")
+    fun tabPaged(tab: String, today: String): PagingSource<Int, ProductRow>
+
+    @Query("""SELECT p.*, i.qty AS qty, i.minQty AS minQty, i.expiryDate AS expiry
+        FROM products p JOIN inventory i ON i.productId = p.id
+        WHERE p.archived = 0 AND i.qty <= i.minQty ORDER BY i.qty LIMIT 10""")
+    fun lowStockList(): Flow<List<ProductRow>>
+
     @Query("SELECT COUNT(*) FROM products WHERE archived = 0") fun count(): Flow<Int>
     @Query("""SELECT COUNT(*) FROM products p JOIN inventory i ON i.productId=p.id
         WHERE p.archived=0 AND i.qty <= i.minQty""") fun lowOrOutCount(): Flow<Int>
     @Query("SELECT * FROM products WHERE id=:id") suspend fun byId(id: Long): Product?
+    @Query("SELECT * FROM products WHERE archived = 0") suspend fun allSync(): List<Product>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(p: Product): Long
     @Update suspend fun update(p: Product)
     @Query("UPDATE products SET archived=1 WHERE id=:id") suspend fun archive(id: Long)
@@ -95,6 +127,9 @@ interface DueDao {
         JOIN customers c ON c.id = d.customerId WHERE d.date = :tomorrow ORDER BY d.time""")
     fun tomorrow(tomorrow: String): Flow<List<DueWithCustomer>>
     @Query("""SELECT d.*, c.name AS customerName, c.balance AS balance FROM dues d
+        JOIN customers c ON c.id = d.customerId WHERE d.date BETWEEN :from AND :to ORDER BY d.date""")
+    fun week(from: String, to: String): Flow<List<DueWithCustomer>>
+    @Query("""SELECT d.*, c.name AS customerName, c.balance AS balance FROM dues d
         JOIN customers c ON c.id = d.customerId WHERE d.date < :today ORDER BY d.date DESC""")
     fun overdue(today: String): Flow<List<DueWithCustomer>>
     @Query("""SELECT d.*, c.name AS customerName, c.balance AS balance FROM dues d
@@ -104,6 +139,10 @@ interface DueDao {
         JOIN customers c ON c.id = d.customerId
         WHERE d.date < :today AND d.followedUp = 0 ORDER BY d.date""")
     fun forgotten(today: String): Flow<List<DueWithCustomer>>
+    @Query("""SELECT d.*, c.name AS customerName, c.balance AS balance FROM dues d
+        JOIN customers c ON c.id = d.customerId WHERE d.date >= :today
+        ORDER BY d.date, d.time LIMIT 5""")
+    fun upcomingFlow(today: String): Flow<List<DueWithCustomer>>
     @Query("SELECT COUNT(*) FROM dues WHERE date = :today") fun todayCount(today: String): Flow<Int>
     @Query("SELECT * FROM dues WHERE id=:id") suspend fun byId(id: Long): DueDate?
     @Insert suspend fun insert(d: DueDate): Long
@@ -158,6 +197,7 @@ interface BackupDao {
 
 @Dao
 interface LogDao {
+    @Query("SELECT * FROM activity_log ORDER BY createdAt DESC LIMIT 500") fun all(): Flow<List<ActivityLog>>
     @Query("SELECT * FROM activity_log ORDER BY createdAt DESC LIMIT 20") fun recent(): Flow<List<ActivityLog>>
     @Insert suspend fun insert(l: ActivityLog)
 }
@@ -166,6 +206,7 @@ interface LogDao {
 interface AIDao {
     @Insert suspend fun conv(c: AIConversation): Long
     @Insert suspend fun msg(m: AIMessage): Long
+    @Query("SELECT * FROM ai_conversations ORDER BY createdAt DESC LIMIT 1") suspend fun lastConv(): AIConversation?
     @Query("SELECT * FROM ai_messages WHERE conversationId = :cid ORDER BY createdAt")
     fun messages(cid: Long): Flow<List<AIMessage>>
 }

@@ -24,7 +24,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.smartassistant.app.data.local.ShopSettings
+import com.smartassistant.app.data.local.entity.ShopSettings
+import com.smartassistant.app.data.prefs.AppPrefs
 import com.smartassistant.app.data.repo.ShopRepository
 import com.smartassistant.app.ui.theme.AppColors
 import kotlinx.coroutines.delay
@@ -75,20 +76,13 @@ fun Onboarding(onStart: () -> Unit, onSkip: () -> Unit) {
                 style = MaterialTheme.typography.bodyLarge, color = AppColors.DarkSurfaceText,
                 textAlign = TextAlign.Center)
             Button(onClick = {
-                scope.launch {
-                    com.smartassistant.app.data.prefs.AppPrefs.get(ctx).setOnboardingDone()
-                    onStart()
-                }
-            }, Modifier.fillMaxWidth().height(56.dp),
-                shape = MaterialTheme.shapes.medium,
+                scope.launch { AppPrefs.get(ctx).setOnboardingDone(); onStart() }
+            }, Modifier.fillMaxWidth().height(56.dp), shape = MaterialTheme.shapes.medium,
                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryBlue)) {
                 Text("ابدأ الآن", color = Color.White, style = MaterialTheme.typography.titleMedium)
             }
             TextButton(onClick = {
-                scope.launch {
-                    com.smartassistant.app.data.prefs.AppPrefs.get(ctx).setOnboardingDone()
-                    onSkip()
-                }
+                scope.launch { AppPrefs.get(ctx).setOnboardingDone(); onSkip() }
             }) { Text("تخطي الإعداد", color = AppColors.DarkSurfaceText) }
         }
     }
@@ -123,7 +117,7 @@ fun ShopSetup(onDone: () -> Unit) {
                     else AsyncImage(logo, null, Modifier.size(120.dp).clip(CircleShape),
                         contentScale = ContentScale.Crop)
                 }
-                FloatingActionButton({ pick.launch("image/*") }, Modifier.size(42.dp),
+                FloatingActionButton(onClick = { pick.launch("image/*") }, Modifier.size(42.dp),
                     containerColor = AppColors.PrimaryBlue, shape = CircleShape) {
                     Icon(Icons.Rounded.AddPhotoAlternate, "إضافة الشعار",
                         tint = Color.White, modifier = Modifier.size(22.dp))
@@ -137,7 +131,7 @@ fun ShopSetup(onDone: () -> Unit) {
                 singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(address, { address = it }, label = { Text("العنوان") },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp))
-            Button({
+            Button(onClick = {
                 scope.launch {
                     repo.save(ShopSettings(name = name.trim(), phone = phone.trim(),
                         whatsapp = whatsapp.trim(), address = address.trim(),
