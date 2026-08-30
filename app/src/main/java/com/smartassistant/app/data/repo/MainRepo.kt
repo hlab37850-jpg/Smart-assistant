@@ -13,7 +13,7 @@ import com.smartassistant.app.data.prefs.AppPrefs
 import com.smartassistant.app.notifications.ReminderScheduler
 import com.smartassistant.app.util.Fmt
 
-class MainRepo(ctx: Context) {
+class MainRepo(private val ctx: Context) {
     val db = AppDatabase.get(ctx)
     val prefs = AppPrefs.get(ctx)
 
@@ -65,7 +65,7 @@ class MainRepo(ctx: Context) {
     val forgotten = db.dueDao().forgotten(Fmt.today())
     suspend fun saveDue(d: DueDate): Long {
         val id = db.dueDao().insert(d)
-        ReminderScheduler.schedule(db.openHelper.writableDatabase.context ?: AppCtx, d.copy(id = id))
+        ReminderScheduler.schedule(ctx, d.copy(id = id))
         log("تحديد موعد", "عميل #${d.customerId} بتاريخ ${d.date}")
         return id
     }
