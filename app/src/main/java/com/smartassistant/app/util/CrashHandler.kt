@@ -17,18 +17,32 @@ object CrashHandler {
             def?.uncaughtException(t, e) ?: kotlin.system.exitProcess(1)
         }
     }
+
     private fun write(ctx: Context, e: Throwable) {
-        val sw = StringWriter(); e.printStackTrace(PrintWriter(sw))
+        val sw = StringWriter()
+        e.printStackTrace(PrintWriter(sw))
         val text = "Time: ${Date()}\nDevice: ${Build.MODEL} API ${Build.VERSION.SDK_INT}\n\n$sw"
+
+        // 1) نسخة داخلية دائماً (لأغراض النظام)
+        try { ctx.filesDir.resolve("crash_log.txt").writeText(text) } catch (_: Exception) {}
+
+        // 2) نسخة في مجلد التنزيلات عبر MediaStore.Files (API عام ومستقر)
         if (Build.VERSION.SDK_INT >= 29) {
-            val cv = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, "smart_assistant_crash.txt")
-                put(MediaStore.Downloads.MIME_TYPE, "text/plain")
-                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-            }
-            ctx.contentResolver.insert(MediaStore.Downloads.CONTENT_URI, cv)?.let {
-                ctx.contentResolver.openOutputStream(it)?.use { o -> o.write(text.toByteArray()) }
-            }
+            try {
+                val cv = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, "smart_assistant_crash.txt")
+                    put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val uri = ctx.contentResolver.insert(MediaStore.Files.getContentUri("external"), cv)
+                uri?.let {
+                    ctx.contentResolver.openOutputStream(it)?.use { o -> o.write(text.toByteArray()) }
+                    cv.clear()
+                    cv.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    ctx.contentResolver.update(it, cv, null, null)
+                }
+            } catch (_: Exception) {}
         }
     }
 }
