@@ -66,14 +66,17 @@ class ReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val cust = db.customerDao().byId(due.customerId) ?: return@withContext Result.failure()
         val shop = db.shopDao().get()
         db.notificationDao().insert(AppNotification(
-            type = "DUE_REMINDER", title = label,
+            type = "DUE_REMINDER",
+            title = label,
             body = "${cust.name} — الرصيد: ${Fmt.money(cust.balance)} — الاستحقاق: ${due.date} ${due.time}",
             route = "customer/${cust.id}"))
         NotificationHelper(applicationContext).post(
-            NotificationHelper.CH_DUES, label,
-            ReminderBuilder.build(shop?.name ?: "المحل", cust.name, cust.balance,
+            channel = NotificationHelper.CH_DUES,
+            title = label,
+            body = ReminderBuilder.build(shop?.name ?: "المحل", cust.name, cust.balance,
                 due.date, due.time, shop?.phone ?: "", shop?.address ?: ""),
-            "customer/${cust.id}", dueId.toInt())
+            route = "customer/${cust.id}",
+            id = dueId.toInt())
         Result.success()
     }
 }
@@ -82,19 +85,46 @@ class DailyScanWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val db = AppDatabase.get(applicationContext)
         val helper = NotificationHelper(applicationContext)
-        val today = Fmt.today(); val tomorrow = Fmt.plusDays(1)
-        val t = db.dueDao().today(today).firstOrNull() ?: emptyList()
-        if (t.isNotEmpty()) {
-            db.notificationDao().insert(AppNotification("DUE_TODAY", "استحقاقات اليوم", "${t.size} استحقاق اليوم", "dues"))
-            helper.post(NotificationHelper.CH_DUES, "استحقاقات اليوم", "${t.size} عميل يستحق اليوم", "dues", 101)
+        val today = Fmt.today()
+        val tomorrow = Fmt.plusDays(1)
+        
+        val todayDues = db.dueDao().today(today).firstOrNull() ?: emptyList()
+        if (todayDues.isNotEmpty()) {
+            db.notificationDao().insert(AppNotification(
+                type = "DUE_TODAY",
+                title = "استحقاقات اليوم",
+                body = "${todayDues.size} استحقاق اليوم",
+                route = "dues"))
+            helper.post(
+                channel = NotificationHelper.CH_DUES,
+                title = "استحقاقات اليوم",
+                body = "${todayDues.size} عميل يستحق اليوم",
+                route = "dues",
+                id = 101)
         }
-        val m = db.dueDao().tomorrow(tomorrow).firstOrNull() ?: emptyList()
-        if (m.isNotEmpty())
-            db.notificationDao().insert(AppNotification("DUE_TOMORROW", "استحقاق غداً", "${m.size} استحقاق غداً", "dues"))
-        val od = db.dueDao().overdue(today).firstOrNull() ?: emptyList()
-        if (od.isNotEmpty()) {
-            db.notificationDao().insert(AppNotification("DUE_OVERDUE", "استحقاقات متأخرة", "${od.size} استحقاق متأخر", "dues"))
-            helper.post(NotificationHelper.CH_DUES, "استحقاقات متأخرة", "${od.size} عميل متأخر", "dues", 102)
+        
+        val tomorrowDues = db.dueDao().tomorrow(tomorrow).firstOrNull() ?: emptyList()
+        if (tomorrowDues.isNotEmpty()) {
+            db.notificationDao().insert(AppNotification(
+                type = "DUE_TOMORROW",
+                title = "استحقاق غداً",
+                body = "${tomorrowDues.size} استحقاق غداً",
+                route = "dues"))
+        }
+        
+        val overdueDues = db.dueDao().overdue(today).firstOrNull() ?: emptyList()
+        if (overdueDues.isNotEmpty()) {
+            db.notificationDao().insert(AppNotification(
+                type = "DUE_OVERDUE",
+                title = "استحقاقات متأخرة",
+                body = "${overdueDues.size} استحقاق متأخر",
+                route = "dues"))
+            helper.post(
+                channel = NotificationHelper.CH_DUES,
+                title = "استحقاقات متأخرة",
+                body = "${overdueDues.size} عميل متأخر",
+                route = "dues",
+                id = 102)
         }
         Result.success()
     }
