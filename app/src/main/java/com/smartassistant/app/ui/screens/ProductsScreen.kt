@@ -39,7 +39,6 @@ fun ProductsScreen(nav: NavController) {
         Pager(config = PagingConfig(pageSize = 20, enablePlaceholders = false)) { pagingSource }
     }.flow.collectAsLazyPagingItems()
 
-    // استخراج القائمة الحالية كقائمة Kotlin عادية
     val currentItems = remember(pager.itemCount, pager.loadState) {
         (0 until pager.itemCount).mapNotNull { pager[it] }
     }
@@ -95,10 +94,7 @@ fun ProductsScreen(nav: NavController) {
                 else -> {
                     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(
-                            items = currentItems,
-                            key = { row -> row.product.id }
-                        ) { row ->
+                        items(currentItems, key = { it.product.id }) { row ->
                             ProductCard(
                                 name = row.product.nameRaw,
                                 code = row.product.code ?: "—",
