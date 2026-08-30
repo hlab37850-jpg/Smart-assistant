@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
+import com.smartassistant.app.notifications.ReminderScheduler
 
 class SmartAssistantApp : Application() {
     override fun onCreate() {
@@ -14,5 +15,6 @@ class SmartAssistantApp : Application() {
             nm.createNotificationChannel(NotificationChannel("stock", "المخزون", NotificationManager.IMPORTANCE_DEFAULT))
             nm.createNotificationChannel(NotificationChannel("system", "النظام", NotificationManager.IMPORTANCE_LOW))
         }
+        ReminderScheduler.scheduleDailyScan(this)
     }
 }
