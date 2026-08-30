@@ -119,7 +119,7 @@ fun CustomersScreen(nav: NavController) {
 @Composable
 fun CustomerCard(name: String, phone: String, balance: Double,
                  dueDate: String?, dueTime: String?, onClick: () -> Unit) {
-    Card(Modifier.fillMaxWidth(), onClick = onClick,
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

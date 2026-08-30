@@ -117,7 +117,7 @@ fun ProductCard(name: String, code: String, qty: Double, minQty: Double, onClick
         qty <= minQty -> "منخفض" to AppColors.GoldAccent
         else -> "متوفر" to AppColors.GreenSuccess
     }
-    Card(Modifier.fillMaxWidth(), onClick = onClick,
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,

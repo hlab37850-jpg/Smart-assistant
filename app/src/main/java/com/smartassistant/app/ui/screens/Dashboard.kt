@@ -210,7 +210,7 @@ fun Dashboard(nav: NavController) {
 @Composable
 fun StatCard(modifier: Modifier, icon: ImageVector, iconColor: Color,
              title: String, value: String, description: String, onClick: () -> Unit) {
-    Card(modifier = modifier, onClick = onClick,
+    Card(onClick = onClick, modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(16.dp)) {
             Surface(Modifier.size(40.dp), shape = MaterialTheme.shapes.medium,
