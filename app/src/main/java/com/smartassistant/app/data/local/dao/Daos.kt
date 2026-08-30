@@ -98,7 +98,7 @@ interface ProductDao {
         WHERE p.archived = 0 AND
         CASE :tab WHEN 'LOW' THEN i.qty <= i.minQty AND i.qty > 0
                   WHEN 'OUT' THEN i.qty <= 0
-                  WHEN 'EXP' THEN i.expiry IS NOT NULL AND i.expiry <= :today
+                  WHEN 'EXP' THEN i.expiryDate IS NOT NULL AND i.expiryDate <= :today
                   ELSE 1 END
         ORDER BY p.nameRaw""")
     fun tabPaged(tab: String, today: String): PagingSource<Int, ProductRow>
