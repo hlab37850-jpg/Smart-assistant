@@ -96,7 +96,7 @@ fun CustomersScreen(nav: NavController) {
                     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(
-                            count = pager.itemCount,
+                            pager.itemCount,
                             key = { index -> pager.peek(index)?.customer?.id ?: index }
                         ) { index ->
                             val row = pager[index]
