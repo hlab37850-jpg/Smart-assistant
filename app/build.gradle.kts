@@ -34,8 +34,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // استهلاك قواعد المكتبات تلقائياً (consumer-rules)
-            consumerProguardFiles("consumer-rules.pro")
             if (System.getenv("KS_PATH") != null) signingConfig = signingConfigs.getByName("ci")
         }
     }
@@ -71,10 +69,9 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
     implementation("com.google.accompanist:accompanist-permissions:0.34.0")
-    // PDFBox + الاعتمادات الاختيارية الكاملة لضمان عدم فقدان أي ميزة
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
-    implementation("com.gemalto.jp2:jp2-android:3.0.4")   // حل دائم - يدعم JP2000
-    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1") // PDFs المشفرة
-    implementation("com.google.mlkit:text-recognition:16.0.0") // OCR
+    implementation("com.gemalto.jp2:jp2-android:3.0.4")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    implementation("com.google.mlkit:text-recognition:16.0.0")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }
