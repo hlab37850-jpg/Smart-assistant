@@ -3,6 +3,7 @@ package com.smartassistant.app.ui.screens
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -89,16 +90,19 @@ fun ProductsScreen(nav: NavController) {
                 else -> {
                     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        val items = pager.itemCount
-                        for (index in 0 until items) {
+                        items(
+                            count = pager.itemCount,
+                            key = { index -> pager.peek(index)?.product?.id ?: index }
+                        ) { index ->
                             val row = pager[index]
                             if (row != null) {
-                                item(key = row.product.id) {
-                                    ProductCard(row.product.nameRaw, row.product.code ?: "—",
-                                        row.qty ?: 0.0, row.minQty ?: 0.0) {
-                                        nav.navigate(Routes.productDetail(row.product.id))
-                                    }
-                                }
+                                ProductCard(
+                                    name = row.product.nameRaw,
+                                    code = row.product.code ?: "—",
+                                    qty = row.qty ?: 0.0,
+                                    minQty = row.minQty ?: 0.0,
+                                    onClick = { nav.navigate(Routes.productDetail(row.product.id)) }
+                                )
                             }
                         }
                     }

@@ -95,16 +95,20 @@ fun CustomersScreen(nav: NavController) {
                 else -> {
                     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        val items = pager.itemCount
-                        for (index in 0 until items) {
+                        items(
+                            count = pager.itemCount,
+                            key = { index -> pager.peek(index)?.customer?.id ?: index }
+                        ) { index ->
                             val row = pager[index]
                             if (row != null) {
-                                item(key = row.customer.id) {
-                                    CustomerCard(row.customer.name, row.customer.phone ?: "—",
-                                        row.customer.balance, row.dueDate, row.dueTime) {
-                                        nav.navigate(Routes.customerDetail(row.customer.id))
-                                    }
-                                }
+                                CustomerCard(
+                                    name = row.customer.name,
+                                    phone = row.customer.phone ?: "—",
+                                    balance = row.customer.balance,
+                                    dueDate = row.dueDate,
+                                    dueTime = row.dueTime,
+                                    onClick = { nav.navigate(Routes.customerDetail(row.customer.id)) }
+                                )
                             }
                         }
                     }
