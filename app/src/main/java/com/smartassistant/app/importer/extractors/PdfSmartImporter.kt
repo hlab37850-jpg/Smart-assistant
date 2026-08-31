@@ -38,17 +38,15 @@ private class WordCollector : PDFTextStripper() {
 }
 
 /**
- * مستورد PDF مبني على بنية تقرير «عام#العملاء»:
- * الأعمدة (يمين→يسار): الإسم | مدين | دائن | العملة
- * يستبعد: العنوان، الفواصل، التذييل (رقم+تاريخ)، الإجماليات.
+ * مستورد PDF مطابق لبنية تقرير «عام#العملاء»:
+ * الترتيب البصري (يسار→يمين): العملة | دائن(لك) | مدين(عليه) | الاسم
  */
 object PdfSmartImporter {
 
-    private val SKIP = Regex("#|---|===|\\|\\s*---|اجمالي|المجموع|total|تاريخ الطباع|عنوان المحل|هاتف المحل|اسم الشرك", RegexOption.IGNORE_CASE)
-    private val TOTAL = Regex("(ال)?اجمالي|المجموع|الإجمالي|اجمالي العمليات", RegexOption.IGNORE_CASE)
+    private val SKIP = Regex("#|---|===|اجمالي|المجموع|total|تاريخ الطباع|عنوان المحل|هاتف المحل|اسم الشرك", RegexOption.IGNORE_CASE)
+    private val TOTAL = Regex("(ال)?اجمالي|المجموع|الإجمالي|اجمالي العمليات|الاجمالي", RegexOption.IGNORE_CASE)
     private val PAGE_FOOTER = Regex("^\\d{1,4}\\s+\\d{4}-\\d{2}-\\d{2}$")
-    private val CURR = Regex("ريال|ريالات|دولار|دينار|درهم|يمني|سعودي|usd|\\$|€|£|جنيه", RegexOption.IGNORE_CASE)
-    private val HDR_KEYS = listOf("اسم", "إسم", "عميل", "رصيد", "مدين", "دائن", "عمل")
+    private val CURR_TOKEN = Regex("ريال|يمني|دولار|دينار|درهم|جنيه|سعودي|usd|\\$|€|£", RegexOption.IGNORE_CASE)
 
     fun extractWords(file: File): List<WordBox> {
         PDDocument.load(file).use { doc ->
@@ -103,7 +101,7 @@ object PdfSmartImporter {
         val gaps = mutableListOf<Float>()
         for (i in 1 until s.size) gaps.add(s[i].x0 - s[i - 1].x1)
         val med = if (gaps.isEmpty()) 0f else gaps.sorted()[gaps.size / 2]
-        val thr = maxOf(med * 2.5f + 1f, 6f)
+        val thr = maxOf(4f, med * 0.5f)
         val cells = mutableListOf<CellBox>()
         var text = StringBuilder(s[0].text); var x0 = s[0].x0; var x1 = s[0].x1; val cy = s[0].centerY
         for (i in 1 until s.size) {
@@ -119,7 +117,8 @@ object PdfSmartImporter {
         return cells.filter { it.text.isNotEmpty() }
     }
 
-    private fun isHeader(joined: String): Boolean = HDR_KEYS.count { joined.contains(it) } >= 2
+    private fun isHeader(joined: String): Boolean =
+        listOf("اسم", "إسم", "عميل", "رصيد", "مدين", "دائن", "عمل").count { joined.contains(it) } >= 2
 
     private fun roleOf(text: String): String? = when {
         text.contains("رصيد") -> "balance"
@@ -142,10 +141,9 @@ object PdfSmartImporter {
         roles: Map<String, ColRange>?, kind: ImportKind,
         session: Long, out: ImportEngine.AnalyzeResult
     ) {
-        val nums = cells.mapNotNull { c -> NumberParser.parse(c.text).value?.let { c to it } }
-        val texts = cells.filter { NumberParser.parse(it.text).value == null }
-
         if (kind == ImportKind.PRODUCT) {
+            val texts = cells.filter { NumberParser.parse(it.text).value == null }
+            val nums = cells.mapNotNull { c -> NumberParser.parse(c.text).value?.let { c to it } }
             val name = texts.maxByOrNull { it.x0 }?.text ?: return
             val qty = nums.maxByOrNull { it.first.x0 }?.second ?: 0.0
             out.products.add(com.smartassistant.app.data.local.entity.Product(nameRaw = ArabicNormalizer.process(name).raw) to qty)
@@ -156,33 +154,67 @@ object PdfSmartImporter {
         var credit = 0.0; var debit = 0.0
         var confidence = 95; val issues = mutableListOf<String>()
 
-        if (roles != null) {
-            for (c in cells) {
-                val num = NumberParser.parse(c.text).value
-                val role = roles.entries
-                    .filter { it.value.contains(c.centerX) }
-                    .minByOrNull { kotlin.math.abs((it.value.start + it.value.end) / 2 - c.centerX) }?.key
-                when {
-                    role == "name" -> name = ((name?.plus(" ") ?: "") + c.text)
-                    role == "credit" -> credit = num ?: credit
-                    role == "debit" -> debit = num ?: debit
-                    role == "balance" -> { val v = num ?: 0.0; if (v >= 0) debit = v else credit = -v }
-                    role == "currency" -> currency = c.text
-                    role == "code" -> {}
-                    num == null && CURR.containsMatchIn(c.text) -> currency = c.text
-                    num == null && name == null -> name = c.text
-                    num != null -> { if (debit == 0.0 && credit == 0.0) debit = num else credit = num }
-                }
+        // ===== النمط الثابت لتقرير العملاء: [عملة] [دائن] [مدين] [الاسم] =====
+        val tokens = cells.flatMap { c -> c.text.split(Regex("\\s+")) }.filter { it.isNotEmpty() }
+        var ti = 0
+        val currSb = StringBuilder()
+        while (ti < tokens.size && CURR_TOKEN.containsMatchIn(tokens[ti])) {
+            if (currSb.isNotEmpty()) currSb.append(' ')
+            currSb.append(tokens[ti]); ti++
+        }
+        val nums2 = mutableListOf<Double>()
+        while (ti < tokens.size && nums2.size < 2) {
+            val v = NumberParser.parse(tokens[ti]).value ?: break
+            nums2 += v; ti++
+        }
+        val nameCandidate = tokens.drop(ti).joinToString(" ").trim()
+
+        when {
+            nameCandidate.isNotEmpty() && nums2.size == 2 -> {
+                name = nameCandidate
+                credit = nums2[0]   // دائن (لك)
+                debit = nums2[1]    // مدين (عليه)
+                currency = currSb.toString().ifEmpty { null }
             }
-        } else {
-            confidence = 75; issues.add("no_header_columns")
-            val byRight = texts.sortedByDescending { it.x0 }
-            name = byRight.firstOrNull { !CURR.containsMatchIn(it.text) }?.text
-            currency = byRight.firstOrNull { CURR.containsMatchIn(it.text) }?.text
-            val ns = nums.sortedByDescending { it.first.x0 }
-            when {
-                ns.size >= 2 -> { credit = ns[1].second; debit = ns[0].second }
-                ns.size == 1 -> { val v = ns[0].second; if (v >= 0) debit = v else credit = -v }
+            nameCandidate.isNotEmpty() && currSb.isNotEmpty() && nums2.size == 1 -> {
+                name = nameCandidate
+                val v = nums2[0]
+                if (v >= 0) debit = v else credit = -v
+                currency = currSb.toString()
+                confidence = 80; issues.add("single_number")
+            }
+            else -> {
+                // ===== احتياط: الإحداثيات =====
+                confidence = 75; issues.add("no_pattern")
+                val nums = cells.mapNotNull { c -> NumberParser.parse(c.text).value?.let { c to it } }
+                val texts = cells.filter { NumberParser.parse(it.text).value == null }
+                if (roles != null) {
+                    for (c in cells) {
+                        val num = NumberParser.parse(c.text).value
+                        val role = roles.entries
+                            .filter { it.value.contains(c.centerX) }
+                            .minByOrNull { kotlin.math.abs((it.value.start + it.value.end) / 2 - c.centerX) }?.key
+                        when {
+                            role == "name" -> name = ((name?.plus(" ") ?: "") + c.text)
+                            role == "credit" -> credit = num ?: credit
+                            role == "debit" -> debit = num ?: debit
+                            role == "balance" -> { val v = num ?: 0.0; if (v >= 0) debit = v else credit = -v }
+                            role == "currency" -> currency = c.text
+                            role == "code" -> {}
+                            num == null && name == null -> name = c.text
+                            num != null -> { if (debit == 0.0 && credit == 0.0) debit = num else credit = num }
+                        }
+                    }
+                } else {
+                    val byRight = texts.sortedByDescending { it.x0 }
+                    name = byRight.firstOrNull { !CURR_TOKEN.containsMatchIn(it.text) }?.text
+                    currency = byRight.firstOrNull { CURR_TOKEN.containsMatchIn(it.text) }?.text
+                    val ns = nums.sortedByDescending { it.first.x0 }
+                    when {
+                        ns.size >= 2 -> { credit = ns[1].second; debit = ns[0].second }
+                        ns.size == 1 -> { val v = ns[0].second; if (v >= 0) debit = v else credit = -v }
+                    }
+                }
             }
         }
 
