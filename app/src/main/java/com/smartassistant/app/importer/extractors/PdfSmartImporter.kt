@@ -1,6 +1,8 @@
 package com.smartassistant.app.importer.extractors
 
+import com.smartassistant.app.data.local.entity.ImportRawRow
 import com.smartassistant.app.data.local.entity.Product
+import com.smartassistant.app.data.repo.MainRepo
 import com.smartassistant.app.importer.ImportEngine
 import com.smartassistant.app.importer.models.ImportKind
 import com.smartassistant.app.importer.normalizers.ArabicNormalizer
@@ -11,11 +13,12 @@ import java.io.File
 
 object PdfSmartImporter {
 
-    private val SKIP = Regex("اجمالي|المجموع|total|تاريخ الطباع|عنوان المحل|هاتف المحل|اسم الشرك|\#|---|===", RegexOption.IGNORE_CASE)
-    private val TOTAL = Regex("اجمالي|المجموع|الإجمالي|الاجمالي|الإجمالي-|اجمالي العمليات", RegexOption.IGNORE_CASE)
-    private val PAGE_FOOTER = Regex("^\\d{1,4}\\s+\\d{4}-\\d{2}-\\d{2}$")
-    private val CURR_TOKEN = Regex("ريال|يمني|دولار|دينار|درهم|جنيه|سعودي|usd", RegexOption.IGNORE_CASE)
+    private val TOTAL = Regex("""(ال)?اجمالي|المجموع|الإجمالي|الاجمالي|الإجمالي-|اجمالي العمليات""", RegexOption.IGNORE_CASE)
+    private val PAGE_FOOTER = Regex("""^\d{1,4}\s+\d{4}-\d{2}-\d{2}$""")
+    private val CURR_TOKEN = Regex("""ريال|يمني|دولار|دينار|درهم|جنيه|سعودي|usd""", RegexOption.IGNORE_CASE)
     private val HDR_KEYS = listOf("اسم", "إسم", "عميل", "رصيد", "مدين", "دائن", "عمل", "كمية", "كميه", "وحدة", "وحده", "صنف", "مخزن")
+
+    private fun isHeader(line: String) = HDR_KEYS.count { line.contains(it) } >= 2
 
     fun parse(file: File, shopName: String?, kind: ImportKind, session: Long): ImportEngine.AnalyzeResult {
         val out = ImportEngine.AnalyzeResult()
@@ -28,13 +31,13 @@ object PdfSmartImporter {
             for (rawLine in text.lines()) {
                 val line = rawLine.trim()
                 if (line.isEmpty()) continue
-                if (SKIP.containsMatchIn(line)) continue
-                if (TOTAL.containsMatchIn(line)) continue
+                if (line.contains("#") || line.contains("---") || line.contains("===")) continue
                 if (PAGE_FOOTER.containsMatchIn(line)) continue
+                if (TOTAL.containsMatchIn(line)) continue
                 if (shopName != null && line.contains(shopName)) continue
                 if (line.contains("المخزون المتبقي")) continue
-                if (HDR_KEYS.count { line.contains(it) } >= 2) continue
-                val cells = line.split(Regex("\\s{2,}|\\|")).map { it.trim() }.filter { it.isNotEmpty() }
+                if (isHeader(line)) continue
+                val cells = line.split(Regex("""\s{2,}|\|""")).map { it.trim() }.filter { it.isNotEmpty() }
                 if (cells.size < 2) continue
                 if (cells.all { it == cells[0] }) continue
                 rowNum++
@@ -62,13 +65,13 @@ object PdfSmartImporter {
         val credit = nums.getOrElse(0) { 0.0 }
         val debit = nums.getOrElse(1) { 0.0 }
         val t = ArabicNormalizer.process(name)
-        out.rows.add(com.smartassistant.app.data.local.entity.ImportRawRow(
+        out.rows.add(ImportRawRow(
             sessionId = session, pageNumber = 0, rowNumber = rowNum,
             nameRaw = t.raw, nameDisplay = t.display, nameNormalized = t.normalized,
             credit = credit, debit = debit,
             currency = currSb.toString().ifEmpty { null },
             net = debit - credit, status = "VALID", confidenceScore = 95,
-            sourceCoordinates = "line" + rowNum, issues = null, approved = 1))
+            sourceCoordinates = "line$rowNum", issues = null, approved = 1))
         out.totalCredit += credit; out.totalDebit += debit
     }
 
@@ -87,4 +90,12 @@ object PdfSmartImporter {
         val t = ArabicNormalizer.process(name)
         out.products.add(Product(nameRaw = t.raw, unit = unit) to qty)
     }
+}
+
+suspend fun deleteSessionData(repo: MainRepo, sid: Long) {
+    repo.db.customerDao().deleteBySession(sid)
+    runCatching { repo.db.customerDao().deleteUnlinked() }
+    repo.db.importDao().deleteRows(sid)
+    repo.db.importDao().deleteIssues(sid)
+    repo.db.importDao().deleteSession(sid)
 }
