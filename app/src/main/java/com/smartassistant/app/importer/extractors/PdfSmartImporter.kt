@@ -1,7 +1,6 @@
 package com.smartassistant.app.importer.extractors
 
-import com.smartassistant.app.data.local.entity.ImportRawRow
-import com.smartassistant.app.data.repo.MainRepo
+import com.smartassistant.app.data.local.entity.Product
 import com.smartassistant.app.importer.ImportEngine
 import com.smartassistant.app.importer.models.ImportKind
 import com.smartassistant.app.importer.models.WordBox
@@ -40,10 +39,11 @@ private class WordCollector : PDFTextStripper() {
 
 object PdfSmartImporter {
 
-    private val SKIP = Regex("#|---|===|تاريخ الطباع|عنوان المحل|هاتف المحل|اسم الشرك", RegexOption.IGNORE_CASE)
+    private val SKIP = Regex("اجمالي|المجموع|total|تاريخ الطباع|عنوان المحل|هاتف المحل|اسم الشرك", RegexOption.IGNORE_CASE)
     private val TOTAL = Regex("(ال)?اجمالي|المجموع|الإجمالي|اجمالي العمليات|الاجمالي", RegexOption.IGNORE_CASE)
     private val PAGE_FOOTER = Regex("^\\d{1,4}\\s+\\d{4}-\\d{2}-\\d{2}$")
     private val CURR_TOKEN = Regex("ريال|يمني|دولار|دينار|درهم|جنيه|سعودي|usd|\\$|€|£", RegexOption.IGNORE_CASE)
+    private val HDR_KEYS = listOf("اسم", "إسم", "عميل", "رصيد", "مدين", "دائن", "عمل", "كميه", "كمية", "وحده", "وحدة", "صنف", "مخزن")
 
     fun extractWords(file: File): List<WordBox> {
         PDDocument.load(file).use { doc ->
@@ -70,20 +70,10 @@ object PdfSmartImporter {
                 val joined = cells.joinToString(" ").trim()
                 if (joined.isBlank()) continue
                 if (PAGE_FOOTER.containsMatchIn(joined)) { out.ignored++; continue }
+                // صفوف العنوان المكررة (كل الخلايا متطابقة) تُتجاهل
+                if (cells.size > 1 && cells.distinctBy { it.text }.size == 1) { out.ignored++; continue }
                 if (SKIP.containsMatchIn(joined)) { out.ignored++; continue }
-                // صفوف الإجماليات تُحفظ للتدقيق المحاسبي ولا تُستورد كعملاء
-                if (TOTAL.containsMatchIn(joined)) {
-                    val numsT = cells.flatMap { c2 -> c2.text.split(Regex("\\s+")) }
-                        .mapNotNull { NumberParser.parse(it).value }
-                    rowNum++
-                    out.rows.add(ImportRawRow(
-                        sessionId = session, pageNumber = page, rowNumber = rowNum,
-                        nameRaw = joined, nameDisplay = joined, nameNormalized = "total_row",
-                        credit = numsT.getOrElse(0) { 0.0 }, debit = numsT.getOrElse(1) { 0.0 },
-                        currency = null, net = 0.0, status = "TOTAL_ROW", confidenceScore = 0,
-                        sourceCoordinates = "p$page", issues = null, approved = 0))
-                    continue
-                }
+                if (TOTAL.containsMatchIn(joined)) { out.ignored++; continue }
                 if (isHeader(joined)) { roles = buildRoles(cells); continue }
                 if (cells.size == 1) { out.ignored++; continue }
                 rowNum++
@@ -110,7 +100,7 @@ object PdfSmartImporter {
         val gaps = mutableListOf<Float>()
         for (i in 1 until s.size) gaps.add(s[i].x0 - s[i - 1].x1)
         val med = if (gaps.isEmpty()) 0f else gaps.sorted()[gaps.size / 2]
-        val thr = maxOf(4f, med * 0.5f)
+        val thr = maxOf(med * 2.5f + 1f, 6f)
         val cells = mutableListOf<CellBox>()
         var text = StringBuilder(s[0].text); var x0 = s[0].x0; var x1 = s[0].x1; val cy = s[0].centerY
         for (i in 1 until s.size) {
@@ -126,16 +116,18 @@ object PdfSmartImporter {
         return cells.filter { it.text.isNotEmpty() }
     }
 
-    private fun isHeader(joined: String): Boolean =
-        listOf("اسم", "إسم", "عميل", "رصيد", "مدين", "دائن", "عمل").count { joined.contains(it) } >= 2
+    private fun isHeader(joined: String): Boolean = HDR_KEYS.count { joined.contains(it) } >= 2
 
     private fun roleOf(text: String): String? = when {
+        text.contains(Regex("كميه|كمية")) -> "qty"
+        text.contains(Regex("وحده|وحدة")) -> "unit"
+        text.contains("مخزن") -> "skip"
         text.contains("رصيد") -> "balance"
         text.contains(Regex("مدين|عليه")) -> "debit"
         text.contains("دائن") || text.trim() == "له" -> "credit"
         text.contains("عمل") -> "currency"
         text.contains("كود") -> "code"
-        text.contains(Regex("اسم|إسم")) || text.contains("عميل") -> "name"
+        text.contains(Regex("اسم|إسم")) || text.contains("عميل") || text.contains("صنف") -> "name"
         else -> null
     }
 
@@ -145,77 +137,95 @@ object PdfSmartImporter {
         return m
     }
 
+    private fun roleAt(roles: Map<String, ColRange>, c: CellBox): String? =
+        roles.entries.filter { it.value.contains(c.centerX) }
+            .minByOrNull { kotlin.math.abs((it.value.start + it.value.end) / 2 - c.centerX) }?.key
+
     private fun buildRecord(
         cells: List<CellBox>, page: Int, rowNum: Int,
         roles: Map<String, ColRange>?, kind: ImportKind,
         session: Long, out: ImportEngine.AnalyzeResult
     ) {
+        // ===== الأصناف والمخزون =====
         if (kind == ImportKind.PRODUCT) {
-            val texts = cells.filter { NumberParser.parse(it.text).value == null }
-            val nums = cells.mapNotNull { c -> NumberParser.parse(c.text).value?.let { c to it } }
-            val name = texts.maxByOrNull { it.x0 }?.text ?: return
-            val qty = nums.maxByOrNull { it.first.x0 }?.second ?: 0.0
-            out.products.add(com.smartassistant.app.data.local.entity.Product(nameRaw = ArabicNormalizer.process(name).raw) to qty)
+            var name: String? = null; var unit: String? = null; var qty = 0.0
+            if (roles != null && roles.containsKey("name")) {
+                for (c in cells) {
+                    when (roleAt(roles, c)) {
+                        "name" -> name = c.text
+                        "unit" -> unit = c.text
+                        "qty" -> qty = NumberParser.parse(c.text).value ?: 0.0
+                        "skip" -> {}
+                        else -> if (name == null && NumberParser.parse(c.text).value == null) name = c.text
+                    }
+                }
+            } else {
+                val texts = cells.filter { NumberParser.parse(it.text).value == null }
+                val nums = cells.mapNotNull { c -> NumberParser.parse(c.text).value?.let { c to it } }
+                name = texts.maxByOrNull { it.x0 }?.text
+                qty = nums.minByOrNull { it.first.x0 }?.second ?: 0.0
+            }
+            if (name.isNullOrBlank()) { out.ignored++; return }
+            val t = ArabicNormalizer.process(name)
+            out.products.add(Product(nameRaw = t.raw, unit = unit) to qty)
             return
         }
 
+        // ===== العملاء =====
         var name: String? = null; var currency: String? = null
         var credit = 0.0; var debit = 0.0
         var confidence = 95; val issues = mutableListOf<String>()
 
-        val tokens = cells.flatMap { c -> c.text.split(Regex("\\s+")) }.filter { it.isNotEmpty() }
-        var ti = 0
-        val currSb = StringBuilder()
-        while (ti < tokens.size && CURR_TOKEN.containsMatchIn(tokens[ti])) {
-            if (currSb.isNotEmpty()) currSb.append(' ')
-            currSb.append(tokens[ti]); ti++
-        }
-        val nums2 = mutableListOf<Double>()
-        while (ti < tokens.size && nums2.size < 2) {
-            val v = NumberParser.parse(tokens[ti]).value ?: break
-            nums2 += v; ti++
-        }
-        val nameCandidate = tokens.drop(ti).joinToString(" ").trim()
-
-        when {
-            nameCandidate.isNotEmpty() && nums2.size == 2 -> {
-                name = nameCandidate
-                credit = nums2[0]; debit = nums2[1]
-                currency = currSb.toString().ifEmpty { null }
-            }
-            nameCandidate.isNotEmpty() && currSb.isNotEmpty() && nums2.size == 1 -> {
-                name = nameCandidate
-                val v = nums2[0]
-                if (v >= 0) debit = v else credit = -v
-                currency = currSb.toString()
-                confidence = 80; issues.add("single_number")
-            }
-            else -> {
-                confidence = 75; issues.add("no_pattern")
-                val nums = cells.mapNotNull { c -> NumberParser.parse(c.text).value?.let { c to it } }
-                val texts = cells.filter { NumberParser.parse(it.text).value == null }
-                if (roles != null) {
-                    for (c in cells) {
-                        val num = NumberParser.parse(c.text).value
-                        val role = roles.entries
-                            .filter { it.value.contains(c.centerX) }
-                            .minByOrNull { kotlin.math.abs((it.value.start + it.value.end) / 2 - c.centerX) }?.key
-                        when {
-                            role == "name" -> name = ((name?.plus(" ") ?: "") + c.text)
-                            role == "credit" -> credit = num ?: credit
-                            role == "debit" -> debit = num ?: debit
-                            role == "balance" -> { val v = num ?: 0.0; if (v >= 0) debit = v else credit = -v }
-                            role == "currency" -> currency = c.text
-                            role == "code" -> {}
-                            num == null && name == null -> name = c.text
-                            num != null -> { if (debit == 0.0 && credit == 0.0) debit = num else credit = num }
-                        }
+        if (roles != null && roles.containsKey("name")) {
+            for (c in cells) {
+                val num = NumberParser.parse(c.text).value
+                when (roleAt(roles, c)) {
+                    "name" -> name = ((name?.plus(" ") ?: "") + c.text)
+                    "credit" -> credit = num ?: credit
+                    "debit" -> debit = num ?: debit
+                    "balance" -> { val v = num ?: 0.0; if (v >= 0) debit = v else credit = -v }
+                    "currency" -> currency = c.text
+                    "code", "skip" -> {}
+                    else -> {
+                        if (num == null && CURR_TOKEN.containsMatchIn(c.text)) currency = c.text
+                        else if (num == null && name == null) name = c.text
+                        else if (num != null) { if (debit == 0.0 && credit == 0.0) debit = num else credit = num }
                     }
-                } else {
-                    val byRight = texts.sortedByDescending { it.x0 }
+                }
+            }
+        } else {
+            confidence = 75; issues.add("no_header_columns")
+            val tokens = cells.flatMap { c -> c.text.split(Regex("\\s+")) }.filter { it.isNotEmpty() }
+            var ti = 0
+            val currSb = StringBuilder()
+            while (ti < tokens.size && CURR_TOKEN.containsMatchIn(tokens[ti])) {
+                if (currSb.isNotEmpty()) currSb.append(' ')
+                currSb.append(tokens[ti]); ti++
+            }
+            val nums2 = mutableListOf<Double>()
+            while (ti < tokens.size && nums2.size < 2) {
+                val v = NumberParser.parse(tokens[ti]).value ?: break
+                nums2 += v; ti++
+            }
+            val nameCandidate = tokens.drop(ti).joinToString(" ").trim()
+            when {
+                nameCandidate.isNotEmpty() && nums2.size == 2 -> {
+                    name = nameCandidate; credit = nums2[0]; debit = nums2[1]
+                    currency = currSb.toString().ifEmpty { null }
+                }
+                nameCandidate.isNotEmpty() && currSb.isNotEmpty() && nums2.size == 1 -> {
+                    name = nameCandidate
+                    val v = nums2[0]
+                    if (v >= 0) debit = v else credit = -v
+                    currency = currSb.toString()
+                    confidence = 80; issues.add("single_number")
+                }
+                else -> {
+                    val byRight = cells.filter { NumberParser.parse(it.text).value == null }.sortedByDescending { it.x0 }
                     name = byRight.firstOrNull { !CURR_TOKEN.containsMatchIn(it.text) }?.text
                     currency = byRight.firstOrNull { CURR_TOKEN.containsMatchIn(it.text) }?.text
-                    val ns = nums.sortedByDescending { it.first.x0 }
+                    val ns = cells.mapNotNull { c -> NumberParser.parse(c.text).value?.let { c to it } }
+                        .sortedByDescending { it.first.x0 }
                     when {
                         ns.size >= 2 -> { credit = ns[1].second; debit = ns[0].second }
                         ns.size == 1 -> { val v = ns[0].second; if (v >= 0) debit = v else credit = -v }
@@ -227,7 +237,7 @@ object PdfSmartImporter {
         if (name.isNullOrBlank()) { out.ignored++; return }
         val triple = ArabicNormalizer.process(name)
         out.rows.add(
-            ImportRawRow(
+            com.smartassistant.app.data.local.entity.ImportRawRow(
                 sessionId = session, pageNumber = page, rowNumber = rowNum,
                 nameRaw = triple.raw, nameDisplay = triple.display, nameNormalized = triple.normalized,
                 credit = credit, debit = debit, currency = currency, net = debit - credit,
@@ -235,17 +245,9 @@ object PdfSmartImporter {
                 confidenceScore = confidence,
                 sourceCoordinates = "p$page",
                 issues = issues.joinToString(",").ifEmpty { null },
-                approved = 0
+                approved = 1
             )
         )
         out.totalCredit += credit; out.totalDebit += debit
     }
-}
-
-suspend fun deleteSessionData(repo: MainRepo, sid: Long) {
-    repo.db.customerDao().deleteBySession(sid)
-    repo.db.customerDao().deleteUnlinked()
-    repo.db.importDao().deleteRows(sid)
-    repo.db.importDao().deleteIssues(sid)
-    repo.db.importDao().deleteSession(sid)
 }

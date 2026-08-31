@@ -14,6 +14,7 @@ import com.smartassistant.app.data.local.entity.Product
 import com.smartassistant.app.data.prefs.AppPrefs
 import com.smartassistant.app.notifications.ReminderScheduler
 import com.smartassistant.app.util.Fmt
+import com.smartassistant.app.importer.normalizers.ArabicNormalizer
 import java.io.File
 
 class MainRepo(private val ctx: Context) {
@@ -112,4 +113,14 @@ class MainRepo(private val ctx: Context) {
 
     // ===== الاستيراد =====
     val importSessions = db.importDao().sessions()
+
+    suspend fun upsertProduct(p: Product, qty: Double) {
+        val norm = ArabicNormalizer.process(p.nameRaw).normalized
+        val existing = db.productDao().allSync().firstOrNull { ArabicNormalizer.process(it.nameRaw).normalized == norm }
+        if (existing != null) {
+            val inv = db.inventoryDao().byProduct(existing.id)
+            db.inventoryDao().upsert(Inventory(id = inv?.id ?: 0, productId = existing.id, qty = qty, minQty = inv?.minQty ?: 0.0, expiryDate = inv?.expiryDate, updatedAt = System.currentTimeMillis()))
+            log("تحديث كمية صنف", p.nameRaw)
+        } else saveProduct(p, qty, 0.0, null)
+    }
 }

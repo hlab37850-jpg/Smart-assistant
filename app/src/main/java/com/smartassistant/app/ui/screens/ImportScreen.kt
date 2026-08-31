@@ -194,7 +194,7 @@ fun ImportScreen(nav: NavController) {
                                                     ImportEngine.apply(repo, sessionId, previewRows)
                                                 } else {
                                                     previewProducts.forEach { (p, q) ->
-                                                        repo.saveProduct(p as com.smartassistant.app.data.local.entity.Product, q, 0.0, null)
+                                                        repo.upsertProduct(p as com.smartassistant.app.data.local.entity.Product, q)
                                                     }
                                                     val s = repo.db.importDao().sessionById(sessionId)
                                                     if (s != null) repo.db.importDao().updateSession(s.copy(
