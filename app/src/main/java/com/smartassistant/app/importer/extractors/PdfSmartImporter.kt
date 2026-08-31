@@ -1,5 +1,6 @@
 package com.smartassistant.app.importer.extractors
 
+import com.smartassistant.app.data.local.entity.ImportRawRow
 import com.smartassistant.app.data.repo.MainRepo
 import com.smartassistant.app.importer.ImportEngine
 import com.smartassistant.app.importer.models.ImportKind
@@ -37,13 +38,9 @@ private class WordCollector : PDFTextStripper() {
     }
 }
 
-/**
- * مستورد PDF مطابق لبنية تقرير «عام#العملاء»:
- * الترتيب البصري (يسار→يمين): العملة | دائن(لك) | مدين(عليه) | الاسم
- */
 object PdfSmartImporter {
 
-    private val SKIP = Regex("#|---|===|اجمالي|المجموع|total|تاريخ الطباع|عنوان المحل|هاتف المحل|اسم الشرك", RegexOption.IGNORE_CASE)
+    private val SKIP = Regex("#|---|===|تاريخ الطباع|عنوان المحل|هاتف المحل|اسم الشرك", RegexOption.IGNORE_CASE)
     private val TOTAL = Regex("(ال)?اجمالي|المجموع|الإجمالي|اجمالي العمليات|الاجمالي", RegexOption.IGNORE_CASE)
     private val PAGE_FOOTER = Regex("^\\d{1,4}\\s+\\d{4}-\\d{2}-\\d{2}$")
     private val CURR_TOKEN = Regex("ريال|يمني|دولار|دينار|درهم|جنيه|سعودي|usd|\\$|€|£", RegexOption.IGNORE_CASE)
@@ -74,7 +71,19 @@ object PdfSmartImporter {
                 if (joined.isBlank()) continue
                 if (PAGE_FOOTER.containsMatchIn(joined)) { out.ignored++; continue }
                 if (SKIP.containsMatchIn(joined)) { out.ignored++; continue }
-                if (TOTAL.containsMatchIn(joined)) { out.ignored++; continue }
+                // صفوف الإجماليات تُحفظ للتدقيق المحاسبي ولا تُستورد كعملاء
+                if (TOTAL.containsMatchIn(joined)) {
+                    val numsT = cells.flatMap { c2 -> c2.text.split(Regex("\\s+")) }
+                        .mapNotNull { NumberParser.parse(it).value }
+                    rowNum++
+                    out.rows.add(ImportRawRow(
+                        sessionId = session, pageNumber = page, rowNumber = rowNum,
+                        nameRaw = joined, nameDisplay = joined, nameNormalized = "total_row",
+                        credit = numsT.getOrElse(0) { 0.0 }, debit = numsT.getOrElse(1) { 0.0 },
+                        currency = null, net = 0.0, status = "TOTAL_ROW", confidenceScore = 0,
+                        sourceCoordinates = "p$page", issues = null, approved = 0))
+                    continue
+                }
                 if (isHeader(joined)) { roles = buildRoles(cells); continue }
                 if (cells.size == 1) { out.ignored++; continue }
                 rowNum++
@@ -154,7 +163,6 @@ object PdfSmartImporter {
         var credit = 0.0; var debit = 0.0
         var confidence = 95; val issues = mutableListOf<String>()
 
-        // ===== النمط الثابت لتقرير العملاء: [عملة] [دائن] [مدين] [الاسم] =====
         val tokens = cells.flatMap { c -> c.text.split(Regex("\\s+")) }.filter { it.isNotEmpty() }
         var ti = 0
         val currSb = StringBuilder()
@@ -172,8 +180,7 @@ object PdfSmartImporter {
         when {
             nameCandidate.isNotEmpty() && nums2.size == 2 -> {
                 name = nameCandidate
-                credit = nums2[0]   // دائن (لك)
-                debit = nums2[1]    // مدين (عليه)
+                credit = nums2[0]; debit = nums2[1]
                 currency = currSb.toString().ifEmpty { null }
             }
             nameCandidate.isNotEmpty() && currSb.isNotEmpty() && nums2.size == 1 -> {
@@ -184,7 +191,6 @@ object PdfSmartImporter {
                 confidence = 80; issues.add("single_number")
             }
             else -> {
-                // ===== احتياط: الإحداثيات =====
                 confidence = 75; issues.add("no_pattern")
                 val nums = cells.mapNotNull { c -> NumberParser.parse(c.text).value?.let { c to it } }
                 val texts = cells.filter { NumberParser.parse(it.text).value == null }
@@ -221,7 +227,7 @@ object PdfSmartImporter {
         if (name.isNullOrBlank()) { out.ignored++; return }
         val triple = ArabicNormalizer.process(name)
         out.rows.add(
-            com.smartassistant.app.data.local.entity.ImportRawRow(
+            ImportRawRow(
                 sessionId = session, pageNumber = page, rowNumber = rowNum,
                 nameRaw = triple.raw, nameDisplay = triple.display, nameNormalized = triple.normalized,
                 credit = credit, debit = debit, currency = currency, net = debit - credit,
@@ -229,14 +235,13 @@ object PdfSmartImporter {
                 confidenceScore = confidence,
                 sourceCoordinates = "p$page",
                 issues = issues.joinToString(",").ifEmpty { null },
-                approved = 1
+                approved = 0
             )
         )
         out.totalCredit += credit; out.totalDebit += debit
     }
 }
 
-/** حذف بيانات جلسة سابقة + تنظيف البيانات التالفة غير المرتبطة بجلسة */
 suspend fun deleteSessionData(repo: MainRepo, sid: Long) {
     repo.db.customerDao().deleteBySession(sid)
     repo.db.customerDao().deleteUnlinked()

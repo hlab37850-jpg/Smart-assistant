@@ -106,6 +106,8 @@ fun ImportScreen(nav: NavController) {
                 return@launch
             }
             if (result.rows.isNotEmpty()) repo.db.importDao().insertRows(result.rows)
+            nav.navigate("review/$sid")
+            return@launch
             previewRows = result.rows
             previewProducts = result.products
             repo.db.importDao().updateSession(ImportSession(

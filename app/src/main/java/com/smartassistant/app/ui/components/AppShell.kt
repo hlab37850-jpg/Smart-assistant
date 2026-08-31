@@ -91,6 +91,7 @@ fun AppShell(startRoute: String, deepLink: String? = null) {
             composable(Routes.NOTIFICATIONS) { NotificationsScreen(nav) }
             composable(Routes.SETTINGS) { SettingsScreen(nav) }
             composable(Routes.IMPORT) { ImportScreen(nav) }
+            composable("review/{sid}") { e -> com.smartassistant.app.ui.screens.ReviewScreen(nav, e.arguments?.getLong("sid") ?: 0L) }
             composable(Routes.AI) { AiScreen(nav) }
             composable(Routes.ADD_CUSTOMER) { AddEditCustomerScreen(nav, null) }
             composable(Routes.EDIT_CUSTOMER, listOf(navArgument("id") { type = NavType.LongType })) { e ->
