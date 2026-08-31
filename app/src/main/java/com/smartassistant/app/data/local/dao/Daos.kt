@@ -79,6 +79,7 @@ interface CustomerDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(c: Customer): Long
     @Update suspend fun update(c: Customer)
     @Query("UPDATE customers SET archived = 1 WHERE id = :id") suspend fun archive(id: Long)
+    @Query("DELETE FROM customers WHERE importSessionId = :sid") suspend fun deleteBySession(sid: Long)
 }
 
 @Dao
@@ -211,6 +212,9 @@ interface ImportDao {
     @Insert suspend fun insertIssues(issues: List<ImportError>)
     @Query("SELECT * FROM import_issues WHERE sessionId = :sid ORDER BY createdAt DESC") fun issues(sid: Long): Flow<List<ImportError>>
     @Query("SELECT * FROM import_issues WHERE sessionId = :sid") suspend fun issuesSync(sid: Long): List<ImportError>
+    @Query("DELETE FROM import_rows WHERE sessionId = :sid") suspend fun deleteRows(sid: Long)
+    @Query("DELETE FROM import_issues WHERE sessionId = :sid") suspend fun deleteIssues(sid: Long)
+    @Query("DELETE FROM import_sessions WHERE id = :sid") suspend fun deleteSession(sid: Long)
 }
 
 @Dao

@@ -17,7 +17,7 @@ import com.smartassistant.app.util.Fmt
 import java.io.File
 
 class MainRepo(private val ctx: Context) {
-    val db = AppDatabase.get(ctx)
+    val db get() = AppDatabase.get(ctx)
     val prefs = AppPrefs.get(ctx)
 
     suspend fun log(action: String, details: String) =
