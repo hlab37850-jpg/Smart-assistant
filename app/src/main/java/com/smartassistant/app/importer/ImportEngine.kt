@@ -150,6 +150,7 @@ object ImportEngine {
         PDDocument.load(file).use { doc ->
             val stripper = PDFTextStripper()
             stripper.setSortByPosition(true)
+            stripper.setEndPage(minOf(doc.numberOfPages, 200))
             val text = stripper.getText(doc)
             if (text.isBlank())
                 throw IllegalStateException("الملف لا يحتوي نصاً قابلاً للاستخراج (ربما صفحات مصوّرة). الاستيراد يدعم PDF النصي حالياً.")

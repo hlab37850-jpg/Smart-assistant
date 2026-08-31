@@ -9,6 +9,11 @@ import com.smartassistant.app.notifications.ReminderScheduler
 class SmartAssistantApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        // تهيئة موارد PDFBox إن وُجدت (بأمان وبدون كسر الترجمة)
+        runCatching {
+            val cls = Class.forName("com.tom_roush.pdfbox.android.PDFBoxResourceLoader")
+            cls.getMethod("init", android.content.Context::class.java).invoke(null, this)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(NotificationChannel("dues", "الاستحقاقات", NotificationManager.IMPORTANCE_HIGH))

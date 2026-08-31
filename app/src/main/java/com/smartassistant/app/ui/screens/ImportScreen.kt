@@ -70,7 +70,7 @@ fun ImportScreen(nav: NavController) {
                         "db", "sqlite", "sqlite3" -> ImportEngine.fromDb(f, existing, kind)
                         else -> null
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     error = e.message ?: "فشل تحليل الملف."
                     null
                 }
@@ -151,7 +151,7 @@ fun ImportScreen(nav: NavController) {
                                     scope.launch {
                                         progress = "جاري التطبيق مع نسخة احتياطية تلقائية..."
                                         withContext(Dispatchers.IO) {
-                                            ImportEngine.apply(ctx, repo, meta?.first ?: "FILE", meta?.second ?: "file", p)
+                                            runCatching { ImportEngine.apply(ctx, repo, meta?.first ?: "FILE", meta?.second ?: "file", p) }.onFailure { e -> error = e.message ?: "فشل تطبيق الاستيراد"; progress = null }
                                         }
                                         progress = null; preview = null
                                     }
