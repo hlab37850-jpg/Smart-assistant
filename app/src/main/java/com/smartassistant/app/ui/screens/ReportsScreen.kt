@@ -160,7 +160,11 @@ private suspend fun buildReport(repo: MainRepo, type: String): List<ReportRow> =
             ReportRow(it.action, it.details, Fmt.ts(it.createdAt))
         }
         "IMPORTS" -> (repo.importSessions.firstOrNull() ?: emptyList()).map {
-            ReportRow(it.fileName, "${it.type} — +${it.addedCustomers} عميل / +${it.addedProducts} صنف", it.status)
+            ReportRow(
+                it.fileName,
+                "${it.kind} — ${it.validCount} سجل صحيح / ${it.reviewCount} مراجعة",
+                it.status
+            )
         }
         else -> emptyList()
     }
