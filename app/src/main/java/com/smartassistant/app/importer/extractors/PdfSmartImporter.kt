@@ -17,6 +17,8 @@ data class CellBox(val text: String, val x0: Float, val x1: Float, val centerY: 
     val centerX: Float get() = (x0 + x1) / 2f
 }
 
+data class ColRange(val start: Float, val end: Float) { fun contains(x: Float) = x >= start && x <= end }
+
 /** يجمع كل كلمة/خلية مع إحداثياتها من PDF */
 private class WordCollector : PDFTextStripper() {
     val words = mutableListOf<WordBox>()
@@ -61,7 +63,7 @@ object PdfSmartImporter {
         if (words.isEmpty()) throw IllegalStateException("لا يوجد نص قابل للاستخراج في الملف.")
         val out = ImportEngine.AnalyzeResult()
         var rowNum = 0
-        var roles: Map<String, FloatRange>? = null
+        var roles: Map<String, ColRange>? = null
         words.groupBy { it.page }.toSortedMap().forEach { (page, pw) ->
             for (row in groupRows(pw)) {
                 val cells = splitCells(row)
@@ -123,15 +125,15 @@ object PdfSmartImporter {
         else -> null
     }
 
-    private fun buildRoles(cells: List<CellBox>): Map<String, FloatRange> {
-        val m = mutableMapOf<String, FloatRange>()
-        cells.forEach { c -> roleOf(c.text)?.let { r -> m[r] = FloatRange(c.x0 - 12f, c.x1 + 12f) } }
+    private fun buildRoles(cells: List<CellBox>): Map<String, ColRange> {
+        val m = mutableMapOf<String, ColRange>()
+        cells.forEach { c -> roleOf(c.text)?.let { r -> m[r] = ColRange(c.x0 - 12f, c.x1 + 12f) } }
         return m
     }
 
     private fun buildRecord(
         cells: List<CellBox>, page: Int, rowNum: Int,
-        roles: Map<String, FloatRange>?, kind: ImportKind,
+        roles: Map<String, ColRange>?, kind: ImportKind,
         session: Long, out: ImportEngine.AnalyzeResult
     ) {
         val nums = cells.mapNotNull { c -> NumberParser.parse(c.text).value?.let { c to it } }
@@ -153,7 +155,7 @@ object PdfSmartImporter {
                 val num = NumberParser.parse(c.text).value
                 val role = roles.entries
                     .filter { it.value.contains(c.centerX) }
-                    .minByOrNull { kotlin.math.abs((it.value.start + it.value.endInclusive) / 2 - c.centerX) }?.key
+                    .minByOrNull { kotlin.math.abs((it.value.start + it.value.end) / 2 - c.centerX) }?.key
                 when {
                     role == "name" -> name = ((name?.plus(" ") ?: "") + c.text)
                     role == "credit" -> credit = num ?: credit
