@@ -251,3 +251,12 @@ object PdfSmartImporter {
         out.totalCredit += credit; out.totalDebit += debit
     }
 }
+
+/** حذف بيانات جلسة استيراد سابقة + تنظيف البيانات التالفة غير المرتبطة بجلسة */
+suspend fun deleteSessionData(repo: com.smartassistant.app.data.repo.MainRepo, sid: Long) {
+    repo.db.customerDao().deleteBySession(sid)
+    runCatching { repo.db.customerDao().deleteUnlinked() }
+    repo.db.importDao().deleteRows(sid)
+    repo.db.importDao().deleteIssues(sid)
+    repo.db.importDao().deleteSession(sid)
+}
