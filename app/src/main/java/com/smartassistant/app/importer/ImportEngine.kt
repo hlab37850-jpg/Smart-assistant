@@ -149,7 +149,7 @@ object ImportEngine {
         val rows = mutableListOf<List<String>>()
         PDDocument.load(file).use { doc ->
             val stripper = PDFTextStripper()
-            stripper.setSortTextPositions(true)
+            stripper.setSortByPosition(true)
             val text = stripper.getText(doc)
             if (text.isBlank())
                 throw IllegalStateException("الملف لا يحتوي نصاً قابلاً للاستخراج (ربما صفحات مصوّرة). الاستيراد يدعم PDF النصي حالياً.")
