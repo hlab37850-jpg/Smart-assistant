@@ -1,6 +1,5 @@
 package com.smartassistant.app.importer.extractors
 
-import com.smartassistant.app.data.local.entity.Product
 import com.smartassistant.app.data.repo.MainRepo
 import com.smartassistant.app.importer.ImportEngine
 import com.smartassistant.app.importer.models.ImportKind
@@ -12,14 +11,14 @@ import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.text.TextPosition
 import java.io.File
 
-/** خلية جدول: نص + نطاق X (تُبنى من الإحداثيات لا من المسافات) */
 data class CellBox(val text: String, val x0: Float, val x1: Float, val centerY: Float) {
     val centerX: Float get() = (x0 + x1) / 2f
 }
 
-data class ColRange(val start: Float, val end: Float) { fun contains(x: Float) = x >= start && x <= end }
+data class ColRange(val start: Float, val end: Float) {
+    fun contains(x: Float) = x >= start && x <= end
+}
 
-/** يجمع كل كلمة/خلية مع إحداثياتها من PDF */
 private class WordCollector : PDFTextStripper() {
     val words = mutableListOf<WordBox>()
     init { setSortByPosition(true) }
@@ -39,39 +38,47 @@ private class WordCollector : PDFTextStripper() {
 }
 
 /**
- * مستورد PDF الذكي: استخراج بالإحداثيات + كشف رؤوس الأعمدة + RTL.
- * القاعدة: لا تخمين — بدون رؤوس أعمدة تُعلَّم السجلات WARNING للمراجعة.
+ * مستورد PDF مبني على بنية تقرير «عام#العملاء»:
+ * الأعمدة (يمين→يسار): الإسم | مدين | دائن | العملة
+ * يستبعد: العنوان، الفواصل، التذييل (رقم+تاريخ)، الإجماليات.
  */
 object PdfSmartImporter {
 
-    private val SKIP = Regex("اجمالي|المجموع|total|صفحة|page|تاريخ الطباع|عنوان المحل|هاتف المحل|اسم الشرك", RegexOption.IGNORE_CASE)
-    private val TOTAL = Regex("(ال)?اجمالي|المجموع|الإجمالي", RegexOption.IGNORE_CASE)
+    private val SKIP = Regex("#|---|===|\\|\\s*---|اجمالي|المجموع|total|تاريخ الطباع|عنوان المحل|هاتف المحل|اسم الشرك", RegexOption.IGNORE_CASE)
+    private val TOTAL = Regex("(ال)?اجمالي|المجموع|الإجمالي|اجمالي العمليات", RegexOption.IGNORE_CASE)
+    private val PAGE_FOOTER = Regex("^\\d{1,4}\\s+\\d{4}-\\d{2}-\\d{2}$")
     private val CURR = Regex("ريال|ريالات|دولار|دينار|درهم|يمني|سعودي|usd|\\$|€|£|جنيه", RegexOption.IGNORE_CASE)
-    private val HDR_KEYS = listOf("اسم", "عميل", "رصيد", "له", "عليه", "مدين", "دائن", "عمله", "كود")
+    private val HDR_KEYS = listOf("اسم", "إسم", "عميل", "رصيد", "مدين", "دائن", "عمل")
 
     fun extractWords(file: File): List<WordBox> {
         PDDocument.load(file).use { doc ->
             val c = WordCollector()
-            c.setEndPage(minOf(doc.numberOfPages, 200))
+            c.setEndPage(minOf(doc.numberOfPages, 300))
             c.getText(doc)
             return c.words
         }
     }
 
     fun parse(file: File, shopName: String?, kind: ImportKind, session: Long): ImportEngine.AnalyzeResult {
-        val words = extractWords(file).filter { shopName == null || !it.text.contains(shopName) }
+        val words = extractWords(file)
         if (words.isEmpty()) throw IllegalStateException("لا يوجد نص قابل للاستخراج في الملف.")
         val out = ImportEngine.AnalyzeResult()
         var rowNum = 0
         var roles: Map<String, ColRange>? = null
+
         words.groupBy { it.page }.toSortedMap().forEach { (page, pw) ->
             for (row in groupRows(pw)) {
-                val cells = splitCells(row)
+                val cells = splitCells(row).filter {
+                    it.text.isNotEmpty() && it.text != "|" && !it.text.contains("---")
+                }
                 if (cells.isEmpty()) continue
                 val joined = cells.joinToString(" ").trim()
-                if (joined.isBlank() || SKIP.containsMatchIn(joined)) { out.ignored++; continue }
+                if (joined.isBlank()) continue
+                if (PAGE_FOOTER.containsMatchIn(joined)) { out.ignored++; continue }
+                if (SKIP.containsMatchIn(joined)) { out.ignored++; continue }
                 if (TOTAL.containsMatchIn(joined)) { out.ignored++; continue }
                 if (isHeader(joined)) { roles = buildRoles(cells); continue }
+                if (cells.size == 1) { out.ignored++; continue }
                 rowNum++
                 buildRecord(cells, page, rowNum, roles, kind, session, out)
             }
@@ -112,16 +119,15 @@ object PdfSmartImporter {
         return cells.filter { it.text.isNotEmpty() }
     }
 
-    private fun isHeader(joined: String): Boolean =
-        HDR_KEYS.count { joined.contains(it) } >= 2
+    private fun isHeader(joined: String): Boolean = HDR_KEYS.count { joined.contains(it) } >= 2
 
     private fun roleOf(text: String): String? = when {
         text.contains("رصيد") -> "balance"
         text.contains(Regex("مدين|عليه")) -> "debit"
-        text.contains(Regex("دائن|(^|\\s)له")) -> "credit"
-        text.contains("عمله") -> "currency"
+        text.contains("دائن") || text.trim() == "له" -> "credit"
+        text.contains("عمل") -> "currency"
         text.contains("كود") -> "code"
-        text.contains(Regex("اسم|عميل")) -> "name"
+        text.contains(Regex("اسم|إسم")) || text.contains("عميل") -> "name"
         else -> null
     }
 
@@ -142,7 +148,7 @@ object PdfSmartImporter {
         if (kind == ImportKind.PRODUCT) {
             val name = texts.maxByOrNull { it.x0 }?.text ?: return
             val qty = nums.maxByOrNull { it.first.x0 }?.second ?: 0.0
-            out.products.add(Product(nameRaw = ArabicNormalizer.process(name).raw) to qty)
+            out.products.add(com.smartassistant.app.data.local.entity.Product(nameRaw = ArabicNormalizer.process(name).raw) to qty)
             return
         }
 
@@ -169,14 +175,13 @@ object PdfSmartImporter {
                 }
             }
         } else {
-            // بدون رؤوس: افتراض RTL موثق + علامة WARNING للمراجعة (لا تخمين أعمى)
             confidence = 75; issues.add("no_header_columns")
             val byRight = texts.sortedByDescending { it.x0 }
             name = byRight.firstOrNull { !CURR.containsMatchIn(it.text) }?.text
             currency = byRight.firstOrNull { CURR.containsMatchIn(it.text) }?.text
             val ns = nums.sortedByDescending { it.first.x0 }
             when {
-                ns.size >= 2 -> { credit = ns[0].second; debit = ns[1].second }
+                ns.size >= 2 -> { credit = ns[1].second; debit = ns[0].second }
                 ns.size == 1 -> { val v = ns[0].second; if (v >= 0) debit = v else credit = -v }
             }
         }
@@ -190,7 +195,7 @@ object PdfSmartImporter {
                 credit = credit, debit = debit, currency = currency, net = debit - credit,
                 status = if (confidence >= 90) "VALID" else "WARNING",
                 confidenceScore = confidence,
-                sourceCoordinates = "p$page:x${name.let { cells.maxByOrNull { c2 -> c2.x0 }?.x0?.toInt() ?: 0 }}",
+                sourceCoordinates = "p$page",
                 issues = issues.joinToString(",").ifEmpty { null },
                 approved = 1
             )
@@ -199,9 +204,10 @@ object PdfSmartImporter {
     }
 }
 
-/** حذف بيانات جلسة استيراد سابقة (لإعادة الاستيراد بعد التصحيح) */
+/** حذف بيانات جلسة سابقة + تنظيف البيانات التالفة غير المرتبطة بجلسة */
 suspend fun deleteSessionData(repo: MainRepo, sid: Long) {
     repo.db.customerDao().deleteBySession(sid)
+    repo.db.customerDao().deleteUnlinked()
     repo.db.importDao().deleteRows(sid)
     repo.db.importDao().deleteIssues(sid)
     repo.db.importDao().deleteSession(sid)

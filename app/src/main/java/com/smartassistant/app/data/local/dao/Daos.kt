@@ -80,6 +80,7 @@ interface CustomerDao {
     @Update suspend fun update(c: Customer)
     @Query("UPDATE customers SET archived = 1 WHERE id = :id") suspend fun archive(id: Long)
     @Query("DELETE FROM customers WHERE importSessionId = :sid") suspend fun deleteBySession(sid: Long)
+    @Query("DELETE FROM customers WHERE importSessionId IS NULL") suspend fun deleteUnlinked()
 }
 
 @Dao
