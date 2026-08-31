@@ -100,7 +100,7 @@ object PdfSmartImporter {
         val gaps = mutableListOf<Float>()
         for (i in 1 until s.size) gaps.add(s[i].x0 - s[i - 1].x1)
         val med = if (gaps.isEmpty()) 0f else gaps.sorted()[gaps.size / 2]
-        val thr = maxOf(med * 2.5f + 1f, 6f)
+        val thr = maxOf(8f, med * 0.5f)
         val cells = mutableListOf<CellBox>()
         var text = StringBuilder(s[0].text); var x0 = s[0].x0; var x1 = s[0].x1; val cy = s[0].centerY
         for (i in 1 until s.size) {

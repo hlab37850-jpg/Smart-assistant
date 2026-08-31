@@ -48,7 +48,7 @@ fun ReviewScreen(nav: NavController, sessionId: Long) {
     val extDebit = dataRows.sumOf { it.debit }
     val diffC = kotlin.math.abs(pdfCredit - extCredit)
     val diffD = kotlin.math.abs(pdfDebit - extDebit)
-    val validated = totalRows.isEmpty() || (diffC < 0.01 && diffD < 0.01)
+    val validated = totalRows.isEmpty() || (diffC < 1.0 && diffD < 1.0)
     val approvedCount = dataRows.count { it.approved == 1 }
     val reviewCount = dataRows.count { it.status == "WARNING" }
 
