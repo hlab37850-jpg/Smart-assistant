@@ -10,9 +10,9 @@ import com.smartassistant.app.data.local.entity.*
 @Database(entities = [
     ShopSettings::class, User::class, Customer::class, CustomerNote::class, DueDate::class,
     AppNotification::class, Category::class, Product::class, Inventory::class,
-    ImportSession::class, ImportRecord::class, ImportError::class, Backup::class,
-    ActivityLog::class, AIConversation::class, AIMessage::class,
-], version = 2, exportSchema = false)
+    ImportSession::class, ImportRawRow::class, ImportError::class, ImportProfile::class,
+    Backup::class, ActivityLog::class, AIConversation::class, AIMessage::class,
+], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun shopDao(): ShopDao
     abstract fun userDao(): UserDao
@@ -24,6 +24,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun inventoryDao(): InventoryDao
     abstract fun noteDao(): NoteDao
     abstract fun importDao(): ImportDao
+    abstract fun profileDao(): ProfileDao
     abstract fun backupDao(): BackupDao
     abstract fun logDao(): LogDao
     abstract fun aiDao(): AIDao

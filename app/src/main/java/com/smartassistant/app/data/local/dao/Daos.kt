@@ -75,6 +75,7 @@ interface CustomerDao {
     @Query("SELECT IFNULL(SUM(-balance),0) FROM customers WHERE balance < 0") fun totalWeOwe(): Flow<Double>
     @Query("SELECT * FROM customers WHERE id = :id") suspend fun byId(id: Long): Customer?
     @Query("SELECT * FROM customers WHERE archived = 0") suspend fun allSync(): List<Customer>
+    @Query("SELECT * FROM customers WHERE nameNormalized = :norm AND archived = 0") suspend fun byNormalizedName(norm: String): Customer?
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(c: Customer): Long
     @Update suspend fun update(c: Customer)
     @Query("UPDATE customers SET archived = 1 WHERE id = :id") suspend fun archive(id: Long)
@@ -180,13 +181,44 @@ interface NoteDao {
     @Insert suspend fun insert(n: CustomerNote): Long
 }
 
+// ===== Import DAOs =====
 @Dao
 interface ImportDao {
     @Insert suspend fun session(s: ImportSession): Long
     @Update suspend fun updateSession(s: ImportSession)
-    @Insert suspend fun record(r: ImportRecord)
-    @Insert suspend fun error(e: ImportError)
+    @Query("SELECT * FROM import_sessions WHERE id = :id") suspend fun sessionById(id: Long): ImportSession?
     @Query("SELECT * FROM import_sessions ORDER BY startedAt DESC") fun sessions(): Flow<List<ImportSession>>
+    @Query("SELECT * FROM import_sessions WHERE fileHash = :hash AND status = 'COMPLETED' LIMIT 1")
+    suspend fun findByHash(hash: String): ImportSession?
+
+    @Insert suspend fun insertRow(r: ImportRawRow): Long
+    @Insert suspend fun insertRows(rows: List<ImportRawRow>)
+    @Update suspend fun updateRow(r: ImportRawRow)
+    @Query("SELECT * FROM import_rows WHERE sessionId = :sid ORDER BY rowNumber") fun rows(sid: Long): Flow<List<ImportRawRow>>
+    @Query("SELECT * FROM import_rows WHERE sessionId = :sid") suspend fun rowsSync(sid: Long): List<ImportRawRow>
+    @Query("SELECT * FROM import_rows WHERE sessionId = :sid AND status IN ('VALID','WARNING') AND approved = 1")
+    suspend fun approvedRows(sid: Long): List<ImportRawRow>
+    @Query("SELECT * FROM import_rows WHERE sessionId = :sid AND status = 'NEEDS_REVIEW'")
+    suspend fun reviewRows(sid: Long): List<ImportRawRow>
+    @Query("SELECT COUNT(*) FROM import_rows WHERE sessionId = :sid AND status = :status")
+    suspend fun countByStatus(sid: Long, status: String): Int
+    @Query("SELECT IFNULL(SUM(credit),0) FROM import_rows WHERE sessionId = :sid AND approved = 1")
+    suspend fun totalCredit(sid: Long): Double
+    @Query("SELECT IFNULL(SUM(debit),0) FROM import_rows WHERE sessionId = :sid AND approved = 1")
+    suspend fun totalDebit(sid: Long): Double
+
+    @Insert suspend fun insertIssue(e: ImportError): Long
+    @Insert suspend fun insertIssues(issues: List<ImportError>)
+    @Query("SELECT * FROM import_issues WHERE sessionId = :sid ORDER BY createdAt DESC") fun issues(sid: Long): Flow<List<ImportError>>
+    @Query("SELECT * FROM import_issues WHERE sessionId = :sid") suspend fun issuesSync(sid: Long): List<ImportError>
+}
+
+@Dao
+interface ProfileDao {
+    @Query("SELECT * FROM import_profiles ORDER BY name") fun all(): Flow<List<ImportProfile>>
+    @Query("SELECT * FROM import_profiles ORDER BY name") suspend fun allSync(): List<ImportProfile>
+    @Insert suspend fun insert(p: ImportProfile): Long
+    @Update suspend fun update(p: ImportProfile)
 }
 
 @Dao

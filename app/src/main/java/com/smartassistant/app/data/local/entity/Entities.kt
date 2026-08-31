@@ -24,17 +24,23 @@ data class User(
     val active: Int = 1,
 )
 
-@Entity(tableName = "customers", indices = [Index("name"), Index("phone"), Index("code")])
+@Entity(tableName = "customers", indices = [Index("name"), Index("phone"), Index("code"), Index("nameNormalized")])
 data class Customer(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val externalCode: String? = null,
     val originalId: String? = null,
     val name: String,
+    val nameNormalized: String = "",
     val phone: String? = null,
     val code: String? = null,
     val address: String? = null,
     val balance: Double = 0.0,
     val rawBalance: String? = null,
     val currency: String? = null,
+    val debit: Double = 0.0,
+    val credit: Double = 0.0,
+    val sourcePage: Int? = null,
+    val importSessionId: Long? = null,
     val archived: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
@@ -104,40 +110,78 @@ data class Inventory(
     val updatedAt: Long = System.currentTimeMillis(),
 )
 
+// ============ Import System Tables ============
+
 @Entity(tableName = "import_sessions")
 data class ImportSession(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val fileName: String,
-    val type: String,
+    val fileHash: String,
+    val fileType: String,
+    val pdfType: String? = null,
+    val profileId: String? = null,
+    val kind: String,
+    val totalFound: Int = 0,
+    val validCount: Int = 0,
+    val reviewCount: Int = 0,
+    val duplicateCount: Int = 0,
+    val incompleteCount: Int = 0,
+    val ignoredCount: Int = 0,
+    val totalCredit: Double = 0.0,
+    val totalDebit: Double = 0.0,
+    val net: Double = 0.0,
+    val status: String = "UPLOADED",
     val startedAt: Long = System.currentTimeMillis(),
     var finishedAt: Long? = null,
-    var addedCustomers: Int = 0,
-    var updatedCustomers: Int = 0,
-    var addedProducts: Int = 0,
-    var updatedProducts: Int = 0,
-    var ignored: Int = 0,
-    var reviewed: Int = 0,
     var backupPath: String? = null,
-    var status: String = "RUNNING",
 )
 
-@Entity(tableName = "import_records")
-data class ImportRecord(
+@Entity(tableName = "import_rows", indices = [Index("sessionId")])
+data class ImportRawRow(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val sessionId: Long,
-    val kind: String,
-    val action: String,
-    val sourceRaw: String,
-    val matchedId: Long? = null,
-    val confidence: Double = 0.0,
+    val pageNumber: Int,
+    val rowNumber: Int,
+    val nameRaw: String,
+    val nameDisplay: String,
+    val nameNormalized: String,
+    val credit: Double = 0.0,
+    val debit: Double = 0.0,
+    val currency: String? = null,
+    val net: Double = 0.0,
+    val status: String = "PENDING",
+    val confidenceScore: Int = 0,
+    val sourceCoordinates: String? = null,
+    val issues: String? = null,
+    val approved: Int = 0,
+    val userEdited: Int = 0,
+    val createdAt: Long = System.currentTimeMillis(),
 )
 
-@Entity(tableName = "import_errors")
+@Entity(tableName = "import_issues")
 data class ImportError(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val sessionId: Long,
+    val pageNumber: Int? = null,
+    val rowNumber: Int? = null,
+    val issueType: String,
     val message: String,
-    val rawLine: String,
+    val rawData: String,
+    val createdAt: Long = System.currentTimeMillis(),
+)
+
+@Entity(tableName = "import_profiles")
+data class ImportProfile(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val profileKey: String,
+    val name: String,
+    val kind: String,
+    val identificationKeywords: String,
+    val columnHints: String,
+    val headerRules: String,
+    val footerRules: String,
+    val totalRules: String,
+    val createdAt: Long = System.currentTimeMillis(),
 )
 
 @Entity(tableName = "backups")
