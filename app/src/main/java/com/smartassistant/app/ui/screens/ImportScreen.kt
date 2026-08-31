@@ -35,8 +35,11 @@ fun ImportScreen(nav: NavController) {
     var preview by remember { mutableStateOf<ImportResult?>(null) }
     var meta by remember { mutableStateOf<Pair<String, String>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var showKindDialog by remember { mutableStateOf(false) }
+    var pendingExt by remember { mutableStateOf("") }
+    var selectedKind by remember { mutableStateOf<String?>(null) }
 
-    fun startImport(uri: Uri) {
+    fun startImport(uri: Uri, kind: String?) {
         scope.launch {
             error = null; preview = null; progress = "جاري نسخ الملف..."
             val file = withContext(Dispatchers.IO) {
@@ -54,16 +57,16 @@ fun ImportScreen(nav: NavController) {
             if (file == null) { progress = null; error = "تعذر قراءة الملف"; return@launch }
             val (f, name) = file
             val ext = name.substringAfterLast('.', "").lowercase()
-            progress = "جاري تحليل الملف..."
+            progress = "جاري تحليل الملف (${kindLabel(kind)})..."
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val existing = repo.allCustomers()
                     val shop = repo.db.shopDao().get()
                     when (ext) {
-                        "csv", "txt" -> ImportEngine.fromCsv(f.readText(), existing)
-                        "xlsx" -> ImportEngine.fromXlsx(f, existing)
-                        "pdf" -> ImportEngine.fromPdf(f, existing, shop?.name)
-                        "db", "sqlite", "sqlite3" -> ImportEngine.fromDb(f, existing)
+                        "csv", "txt" -> ImportEngine.fromCsv(f.readText(), existing, kind)
+                        "xlsx" -> ImportEngine.fromXlsx(f, existing, kind)
+                        "pdf" -> ImportEngine.fromPdf(f, existing, shop?.name, kind)
+                        "db", "sqlite", "sqlite3" -> ImportEngine.fromDb(f, existing, kind)
                         else -> null
                     }
                 }.getOrNull()
@@ -76,7 +79,7 @@ fun ImportScreen(nav: NavController) {
     }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) startImport(uri)
+        if (uri != null) startImport(uri, selectedKind)
     }
 
     Scaffold(topBar = {
@@ -91,12 +94,18 @@ fun ImportScreen(nav: NavController) {
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { Text("يتم استخراج: العملاء + الأرصدة الحالية + الأصناف + المخزون فقط. يُهمل كل ما عدا ذلك تلقائياً.",
-                style = MaterialTheme.typography.bodySmall, color = AppColors.Gray) }
-            item { ImportCard("قاعدة بيانات DB", "ملفات .db / .sqlite", Icons.Rounded.Storage) { picker.launch(arrayOf("*/*")) } }
-            item { ImportCard("Excel", "ملفات .xlsx", Icons.Rounded.TableChart) { picker.launch(arrayOf("*/*")) } }
-            item { ImportCard("CSV", "ملفات .csv / .txt", Icons.Rounded.Description) { picker.launch(arrayOf("*/*")) } }
-            item { ImportCard("PDF", "ملفات .pdf (نص حقيقي)", Icons.Rounded.PictureAsPdf) { picker.launch(arrayOf("*/*")) } }
+            item {
+                Text("يتم استخراج: العملاء + الأرصدة الحالية + الأصناف + المخزون فقط. يُهمل كل ما عدا ذلك تلقائياً.",
+                    style = MaterialTheme.typography.bodySmall, color = AppColors.Gray)
+            }
+            item { ImportCard("قاعدة بيانات DB", "ملفات .db / .sqlite", Icons.Rounded.Storage) {
+                pendingExt = "db"; showKindDialog = true } }
+            item { ImportCard("Excel", "ملفات .xlsx", Icons.Rounded.TableChart) {
+                pendingExt = "xlsx"; showKindDialog = true } }
+            item { ImportCard("CSV", "ملفات .csv / .txt", Icons.Rounded.Description) {
+                pendingExt = "csv"; showKindDialog = true } }
+            item { ImportCard("PDF", "ملفات .pdf (نص حقيقي)", Icons.Rounded.PictureAsPdf) {
+                pendingExt = "pdf"; showKindDialog = true } }
 
             item {
                 progress?.let {
@@ -123,7 +132,7 @@ fun ImportScreen(nav: NavController) {
                 preview?.let { p ->
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("معاينة الاستيراد", style = MaterialTheme.typography.titleLarge)
+                            Text("معاينة الاستيراد (${kindLabel(selectedKind)})", style = MaterialTheme.typography.titleLarge)
                             Text("سيتم إضافة: ${p.addCustomers.size} عميل، ${p.addProducts.size} صنف",
                                 color = AppColors.GreenSuccess)
                             Text("سيتم تحديثه: ${p.updateCustomers.size} عميل", color = AppColors.GoldAccent)
@@ -150,6 +159,44 @@ fun ImportScreen(nav: NavController) {
             }
         }
     }
+
+    if (showKindDialog) {
+        AlertDialog(
+            onDismissRequest = { showKindDialog = false },
+            title = { Text("نوع البيانات في الملف") },
+            text = { Text("ملف ${pendingExt.uppercase()}: ماذا تريد أن تستورد منه؟") },
+            confirmButton = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        selectedKind = "CUSTOMER"; showKindDialog = false
+                        picker.launch(arrayOf("*/*"))
+                    }, modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryBlue)) {
+                        Text("العملاء والأرصدة", color = Color.White)
+                    }
+                    Button(onClick = {
+                        selectedKind = "PRODUCT"; showKindDialog = false
+                        picker.launch(arrayOf("*/*"))
+                    }, modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.CyanAccent)) {
+                        Text("الأصناف والمخزون", color = Color.White)
+                    }
+                    OutlinedButton(onClick = {
+                        selectedKind = null; showKindDialog = false
+                        picker.launch(arrayOf("*/*"))
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text("تلقائي (ملفات مختلطة)")
+                    }
+                }
+            },
+            dismissButton = { TextButton(onClick = { showKindDialog = false }) { Text("إلغاء") } })
+    }
+}
+
+private fun kindLabel(kind: String?): String = when (kind) {
+    "CUSTOMER" -> "عملاء"
+    "PRODUCT" -> "أصناف"
+    else -> "تلقائي"
 }
 
 @Composable

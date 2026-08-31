@@ -2,11 +2,11 @@ package com.smartassistant.app.importer
 
 import android.database.sqlite.SQLiteDatabase
 import com.smartassistant.app.data.local.entity.Customer
-import com.smartassistant.app.data.local.entity.ImportError
 import com.smartassistant.app.data.local.entity.ImportRecord
 import com.smartassistant.app.data.local.entity.ImportSession
 import com.smartassistant.app.data.local.entity.Product
 import com.smartassistant.app.data.repo.MainRepo
+import com.smartassistant.app.util.Csv
 import com.smartassistant.app.util.DataPreservation
 import com.smartassistant.app.util.Matching
 import com.tom_roush.pdfbox.pdmodel.PDDocument
@@ -23,9 +23,10 @@ data class ImportResult(
 
 object ImportEngine {
 
-    private val SKIP = Regex("اجمالي|المجموع|total|صفحة|page|هاتف|عنوان|تاريخ الطباعة|محل|متجر", RegexOption.IGNORE_CASE)
+    private val SKIP = Regex("اجمالي|المجموع|total|صفحة|page|تاريخ الطباعة|عنوان المحل|هاتف المحل", RegexOption.IGNORE_CASE)
 
-    fun analyze(rows: List<List<String>>, existing: List<Customer>, kindHint: String?): ImportResult {
+    /** kind: "CUSTOMER" = عملاء فقط، "PRODUCT" = أصناف فقط، null = تلقائي */
+    fun analyze(rows: List<List<String>>, existing: List<Customer>, kind: String?): ImportResult {
         if (rows.isEmpty()) return ImportResult()
         var header = -1
         var nameCol = 0; var phoneCol = -1; var balCol = -1; var qtyCol = -1; var codeCol = -1
@@ -55,10 +56,12 @@ object ImportEngine {
             val qtyRaw = if (qtyCol >= 0) r.getOrElse(qtyCol) { "" } else null
             val code = if (codeCol >= 0) DataPreservation.keepRaw(r.getOrElse(codeCol) { "" }).ifEmpty { null } else null
             if (name.isEmpty()) { review += joined; continue }
-            val isProduct = kindHint == "PRODUCT" || (qtyRaw != null && balRaw == null)
+            val isProduct = if (kind != null) kind == "PRODUCT"
+                            else (qtyRaw != null && balRaw == null)
             if (isProduct) {
-                val q = DataPreservation.parseAmount(qtyRaw).value ?: 0.0
-                addP += Product(nameRaw = name, code = code, originalId = null) to q
+                val q = DataPreservation.parseAmount(qtyRaw).value
+                    ?: DataPreservation.parseAmount(balRaw).value ?: 0.0
+                addP += Product(nameRaw = name, code = code) to q
                 continue
             }
             val parsed = DataPreservation.parseAmount(balRaw)
@@ -70,27 +73,27 @@ object ImportEngine {
                 .maxByOrNull { it.second }
             when {
                 match != null && match.second >= 0.8 ->
-                    upC += match.first.copy(balance = balance, rawBalance = parsed.raw ?: balRaw,
+                    upC += match.first.copy(balance = balance, rawBalance = parsed.raw.ifEmpty { balRaw },
                         phone = phone ?: match.first.phone)
                 match != null && match.second >= 0.5 -> review += joined
                 else -> addC += Customer(name = name, phone = phone, code = code,
-                    balance = balance, rawBalance = parsed.raw ?: balRaw)
+                    balance = balance, rawBalance = parsed.raw.ifEmpty { balRaw })
             }
         }
         return ImportResult(addC, upC, addP, review, ignored)
     }
 
-    fun fromCsv(text: String, existing: List<Customer>): ImportResult =
-        analyze(com.smartassistant.app.util.Csv.parse(text), existing, null)
+    fun fromCsv(text: String, existing: List<Customer>, kind: String?): ImportResult =
+        analyze(Csv.parse(text), existing, kind)
 
-    fun fromXlsx(file: File, existing: List<Customer>): ImportResult {
+    fun fromXlsx(file: File, existing: List<Customer>, kind: String?): ImportResult {
         val sheets = XlsxReader.read(file)
-        val all = sheets.flatMap { it.rows }
-        return analyze(all, existing, null)
+        return analyze(sheets.flatMap { it.rows }, existing, kind)
     }
 
-    fun fromPdf(file: File, existing: List<Customer>, shopName: String?): ImportResult {
+    fun fromPdf(file: File, existing: List<Customer>, shopName: String?, kind: String?): ImportResult {
         val rows = mutableListOf<List<String>>()
+        rows += if (kind == "PRODUCT") listOf("اسم الصنف", "كمية") else listOf("اسم العميل", "رصيد")
         PDDocument.load(file).use { doc ->
             val stripper = PDFTextStripper()
             val text = stripper.getText(doc)
@@ -101,17 +104,17 @@ object ImportEngine {
                     if (shopName != null && joined.contains(shopName)) return@forEach
                     if (SKIP.containsMatchIn(joined)) return@forEach
                     val lastNum = tokens.lastOrNull { DataPreservation.parseAmount(it).value != null }
-                    val name = tokens.dropLast(1).joinToString(" ")
+                    val name = tokens.dropLast(if (lastNum != null) 1 else 0).joinToString(" ").trim()
+                    if (name.isBlank()) return@forEach
                     rows += listOf(name, lastNum ?: "")
                 }
             }
         }
-        return analyze(rows, existing, "CUSTOMER")
+        return analyze(rows, existing, kind ?: "CUSTOMER")
     }
 
-    fun fromDb(file: File, existing: List<Customer>): ImportResult {
+    fun fromDb(file: File, existing: List<Customer>, kind: String?): ImportResult {
         val combined = mutableListOf<List<String>>()
-        var productHint = false
         SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
             val tables = mutableListOf<String>()
             db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'", null).use { c ->
@@ -126,8 +129,13 @@ object ImportEngine {
                 val isCust = cols.any { it.contains(Regex("name|اسم", RegexOption.IGNORE_CASE)) } &&
                     cols.any { it.contains(Regex("phone|mobile|هاتف|balance|رصيد", RegexOption.IGNORE_CASE)) }
                 val isProd = cols.any { it.contains(Regex("qty|quantity|كمية", RegexOption.IGNORE_CASE)) }
-                if (!isCust && !isProd) continue
-                if (isProd) productHint = true
+                val wanted = when (kind) {
+                    "CUSTOMER" -> isCust
+                    "PRODUCT" -> isProd
+                    else -> isCust || isProd
+                }
+                if (!wanted) continue
+                combined += cols
                 db.rawQuery("SELECT * FROM $t LIMIT 5000", null).use { c ->
                     while (c.moveToNext()) {
                         combined += (0 until c.columnCount).map { i -> c.getString(i) ?: "" }
@@ -135,7 +143,7 @@ object ImportEngine {
                 }
             }
         }
-        return analyze(combined, existing, if (productHint) null else "CUSTOMER")
+        return analyze(combined, existing, kind)
     }
 
     suspend fun apply(ctx: android.content.Context, repo: MainRepo, type: String,
@@ -160,7 +168,7 @@ object ImportEngine {
                 action = "ADD", sourceRaw = p.nameRaw, confidence = 1.0))
         }
         result.review.forEach { r ->
-            repo.db.importDao().record(ImportRecord(sessionId = sid, kind = "ERROR",
+            repo.db.importDao().record(ImportRecord(sessionId = sid, kind = "REVIEW",
                 action = "REVIEW", sourceRaw = r, confidence = 0.0))
         }
         repo.db.importDao().updateSession(ImportSession(id = sid, fileName = fileName, type = type,
