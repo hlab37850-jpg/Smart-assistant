@@ -54,26 +54,33 @@ fun ImportScreen(nav: NavController) {
                     f to name
                 }.getOrNull()
             }
-            if (file == null) { progress = null; error = "تعذر قراءة الملف"; return@launch }
+            if (file == null) { progress = null; error = "تعذر قراءة الملف من الجهاز."; return@launch }
             val (f, name) = file
             val ext = name.substringAfterLast('.', "").lowercase()
+            val type = ImportEngine.detectType(f, ext)
             progress = "جاري تحليل الملف (${kindLabel(kind)})..."
             val result = withContext(Dispatchers.IO) {
-                runCatching {
+                try {
                     val existing = repo.allCustomers()
                     val shop = repo.db.shopDao().get()
-                    when (ext) {
+                    when (type) {
                         "csv", "txt" -> ImportEngine.fromCsv(f.readText(), existing, kind)
                         "xlsx" -> ImportEngine.fromXlsx(f, existing, kind)
                         "pdf" -> ImportEngine.fromPdf(f, existing, shop?.name, kind)
                         "db", "sqlite", "sqlite3" -> ImportEngine.fromDb(f, existing, kind)
                         else -> null
                     }
-                }.getOrNull()
+                } catch (e: Exception) {
+                    error = e.message ?: "فشل تحليل الملف."
+                    null
+                }
             }
             progress = null
-            if (result == null) { error = "نوع ملف غير مدعوم أو ملف تالف"; return@launch }
-            meta = ext.uppercase() to name
+            if (result == null) {
+                if (error == null) error = "نوع الملف غير مدعوم ($type). المدعوم: PDF نصي، xlsx، csv، db."
+                return@launch
+            }
+            meta = type.uppercase() to name
             preview = result
         }
     }
@@ -95,7 +102,7 @@ fun ImportScreen(nav: NavController) {
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                Text("يتم استخراج: العملاء + الأرصدة الحالية + الأصناف + المخزون فقط. يُهمل كل ما عدا ذلك تلقائياً.",
+                Text("يتم استخراج: العملاء + الأرصدة الحالية + الأصناف + المخزون فقط. يفهم المحرك الجداول بأي ترتيب، والرصيد بالسالب أو بين قوسين أو بعمودي مدين/دائن أو بكلمة له/عليه.",
                     style = MaterialTheme.typography.bodySmall, color = AppColors.Gray)
             }
             item { ImportCard("قاعدة بيانات DB", "ملفات .db / .sqlite", Icons.Rounded.Storage) {
