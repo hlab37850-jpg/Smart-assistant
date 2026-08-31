@@ -18,7 +18,7 @@ import java.io.File
 import java.security.MessageDigest
 
 /**
- * محرك الاستيراد القديم (CSV/XLSX/PDF نصي بسيط) — يعمل مع Entities الجديدة.
+ * محرك الاستيراد الحالي — يعمل مع Entities الجديدة.
  * Pipeline الكامل (WordBox + Layout Analyzer) سيأتي في الدفعة 2.
  */
 object ImportEngine {
@@ -99,7 +99,6 @@ object ImportEngine {
                 return@forEach
             }
 
-            // ===== CUSTOMER: حساب الرصيد =====
             val creditV: Double; val debitV: Double
             when {
                 debitCol >= 0 && creditCol >= 0 -> {
@@ -223,12 +222,10 @@ object ImportEngine {
         return analyze(combined, emptyList(), kind, session)
     }
 
-    /** تطبيق النتائج على قاعدة البيانات ضمن Transaction */
     suspend fun apply(repo: MainRepo, session: Long, rows: List<ImportRawRow>) {
         repo.db.runInTransaction {
             rows.forEach { row ->
                 if (row.nameNormalized.isBlank()) return@forEach
-                // كشف تكرار بالاسم المطبّع
                 val existing = repo.db.customerDao().byNormalizedName(row.nameNormalized)
                 val net = row.debit - row.credit
                 if (existing != null) {
@@ -270,8 +267,8 @@ object ImportEngine {
     data class AnalyzeResult(
         val rows: MutableList<ImportRawRow> = mutableListOf(),
         val products: MutableList<Pair<Product, Double>> = mutableListOf(),
-        val totalCredit: Double = 0.0,
-        val totalDebit: Double = 0.0,
+        var totalCredit: Double = 0.0,
+        var totalDebit: Double = 0.0,
         var ignored: Int = 0
     )
 }
