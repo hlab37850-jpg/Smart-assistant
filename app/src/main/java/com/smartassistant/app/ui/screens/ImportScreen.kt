@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.smartassistant.app.data.local.entity.ImportSession
 import com.smartassistant.app.data.repo.MainRepo
-import com.smartassistant.app.importer.extractors.PdfSmartImporter
+import com.smartassistant.app.importer.extractors.UniversalPdfImporter
 import com.smartassistant.app.importer.extractors.deleteSessionData
 import com.smartassistant.app.importer.models.ImportKind
 import com.smartassistant.app.importer.models.SessionStatus
@@ -80,7 +80,7 @@ fun ImportScreen(nav: NavController) {
                     when (type) {
                         "csv", "txt" -> com.smartassistant.app.importer.ImportEngine.fromCsv(f.readText(), kind, sid)
                         "xlsx" -> com.smartassistant.app.importer.ImportEngine.fromXlsx(f, kind, sid)
-                        "pdf" -> PdfSmartImporter.parse(f, null, kind, sid, ctx)
+                        "pdf" -> UniversalPdfImporter.parse(f, null, kind, sid, ctx)
                         "db", "sqlite", "sqlite3" -> com.smartassistant.app.importer.ImportEngine.fromDb(f, kind, sid)
                         else -> null
                     }
