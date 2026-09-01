@@ -80,7 +80,7 @@ fun ImportScreen(nav: NavController) {
                     when (type) {
                         "csv", "txt" -> com.smartassistant.app.importer.ImportEngine.fromCsv(f.readText(), kind, sid)
                         "xlsx" -> com.smartassistant.app.importer.ImportEngine.fromXlsx(f, kind, sid)
-                        "pdf" -> UniversalPdfImporter.parse(f, null, kind, sid, ctx)
+                        "pdf" -> UniversalPdfImporter.parse(f, null, kind, sid)
                         "db", "sqlite", "sqlite3" -> com.smartassistant.app.importer.ImportEngine.fromDb(f, kind, sid)
                         else -> null
                     }
