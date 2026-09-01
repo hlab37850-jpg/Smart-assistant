@@ -11,18 +11,14 @@ import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
 
-/**
- * محرك الاستيراد السطري (الخيار أ - المُجرّب سابقاً على نفس الملفين):
- * عملاء : [عملة] [دائن] [مدين] [الاسم...]
- * أصناف : [كمية] [وحدة] [الصنف...] [المخزن الرئيسي]
- * + سطر أمان (خيار ب): لا عملة ولا أرقام => تجاهل آمن بدون تخمين.
- */
 object PdfSmartImporter {
 
+    private val TOTAL = Regex("(ال)?اجمالي|المجموع|الإجمالي|الاجمالي|الإجمالي-|اجمالي العمليات", RegexOption.IGNORE_CASE)
+    private val PAGE_FOOTER = Regex("^\\d{1,4}\\s+\\d{4}-\\d{2}-\\d{2}$")
     private val CURR_TOKEN = Regex("ريال|يمني|دولار|دينار|درهم|جنيه|سعودي|usd|\\$|€|£", RegexOption.IGNORE_CASE)
-    private val FOOTER = Regex("^\\d{1,4}\\s+\\d{4}-\\d{2}-\\d{2}$")
-    private val TOTAL = Regex("[إا]جمالي|المجموع", RegexOption.IGNORE_CASE)
-    private val WH_TOKENS = setOf("المخزن", "الرئيسي", "الفرع")
+    private val HDR_KEYS = listOf("اسم", "إسم", "عميل", "رصيد", "مدين", "دائن", "عمل", "كمية", "كميه", "وحدة", "وحده", "صنف", "مخزن", "المتبقي")
+
+    private fun isHeader(line: String): Boolean = HDR_KEYS.count { line.contains(it) } >= 2
 
     fun parse(file: File, shopName: String?, kind: ImportKind, session: Long): ImportEngine.AnalyzeResult {
         val out = ImportEngine.AnalyzeResult()
@@ -36,16 +32,16 @@ object PdfSmartImporter {
                 val line = raw.trim()
                 if (line.isEmpty()) continue
                 if (line.contains("#") || line.contains("---") || line.contains("===")) continue
-                if (FOOTER.containsMatchIn(line)) continue
+                if (PAGE_FOOTER.containsMatchIn(line)) continue
                 if (TOTAL.containsMatchIn(line)) continue
                 if (shopName != null && line.contains(shopName)) continue
+                if (line.contains("المخزون المتبقي")) continue
                 if (kind == ImportKind.CUSTOMER) {
                     if (line.contains("العملة") && line.contains("مدين")) continue
                     rowNum++
                     parseCustomerLine(line, session, rowNum, out)
                 } else {
                     if (line.contains("الكمية") && line.contains("الصنف")) continue
-                    if (line.contains("المخزون المتبقي")) continue
                     rowNum++
                     parseProductLine(line, session, rowNum, out)
                 }
@@ -60,7 +56,7 @@ object PdfSmartImporter {
         var i = 0
         val currSb = StringBuilder()
         while (i < tokens.size && CURR_TOKEN.containsMatchIn(tokens[i])) {
-            if (currSb.isNotEmpty()) currSb.append(' ')
+            if (currSb.isNotEmpty()) currSb.append(" ")
             currSb.append(tokens[i]); i++
         }
         val nums = mutableListOf<Double>()
@@ -69,7 +65,6 @@ object PdfSmartImporter {
             nums += v; i++
         }
         val name = tokens.drop(i).joinToString(" ").trim()
-        // سطر الأمان (خيار ب): لا عملة ولا أرقام => تجاهل آمن بدون تخمين
         if (currSb.isEmpty() && nums.isEmpty()) { out.ignored++; return }
         if (name.isEmpty()) { out.ignored++; return }
         val credit = nums.getOrElse(0) { 0.0 }
@@ -89,15 +84,15 @@ object PdfSmartImporter {
     private fun parseProductLine(line: String, session: Long, rowNum: Int, out: ImportEngine.AnalyzeResult) {
         val tokens = line.split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (tokens.size < 2) { out.ignored++; return }
-        val qty = NumberParser.parse(tokens[0]).value
-        if (qty == null) { out.ignored++; return }
+        val qty = NumberParser.parse(tokens[0]).value ?: run { out.ignored++; return }
         var i = 1
         var unit: String? = null
         if (i < tokens.size && NumberParser.parse(tokens[i]).value == null) {
             unit = tokens[i].takeIf { it != "-" }; i++
         }
         var end = tokens.size
-        while (end > i && tokens[end - 1] in WH_TOKENS) end--
+        val whIdx = tokens.indexOfFirst { it.contains("المخزن") || it == "الرئيسي" }
+        if (whIdx > i) end = whIdx
         val name = tokens.subList(i, end).joinToString(" ").trim()
         if (name.isEmpty()) { out.ignored++; return }
         val t = ArabicNormalizer.process(name)
@@ -105,7 +100,6 @@ object PdfSmartImporter {
     }
 }
 
-/** حذف بيانات جلسة سابقة + تنظيف البيانات التالفة غير المرتبطة */
 suspend fun deleteSessionData(repo: MainRepo, sid: Long) {
     repo.db.customerDao().deleteBySession(sid)
     runCatching { repo.db.customerDao().deleteUnlinked() }
