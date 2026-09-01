@@ -4,6 +4,7 @@ import com.smartassistant.app.data.repo.MainRepo
 import com.smartassistant.app.importer.ImportEngine
 import com.smartassistant.app.importer.models.ImportKind
 import com.smartassistant.app.importer.models.WordBox
+import com.smartassistant.app.data.local.entity.Product
 import com.smartassistant.app.importer.normalizers.ArabicNormalizer
 import com.smartassistant.app.importer.normalizers.NumberParser
 import com.tom_roush.pdfbox.pdmodel.PDDocument
