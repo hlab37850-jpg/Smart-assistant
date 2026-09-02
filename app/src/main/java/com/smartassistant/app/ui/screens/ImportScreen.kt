@@ -88,7 +88,16 @@ fun ImportScreen(nav: NavController) {
             }
             progress = null
             if (result == null) { error = "نوع الملف غير مدعوم أو فشل التحليل ($type)."; return@launch }
-            if (result.rows.isNotEmpty()) repo.db.importDao().insertRows(result.rows)
+            val rowsToSave = if (result.rows.isNotEmpty()) result.rows else result.products.mapIndexed { idx, pr ->
+                com.smartassistant.app.data.local.entity.ImportRawRow(
+                    sessionId = sid, pageNumber = 0, rowNumber = idx + 1,
+                    nameRaw = pr.first.nameRaw, nameDisplay = pr.first.nameRaw,
+                    nameNormalized = com.smartassistant.app.importer.normalizers.ArabicNormalizer.process(pr.first.nameRaw).normalized,
+                    credit = 0.0, debit = pr.second, currency = pr.first.unit,
+                    net = pr.second, status = "VALID", confidenceScore = 95,
+                    sourceCoordinates = "prod$idx", issues = null, approved = 1)
+            }
+            if (rowsToSave.isNotEmpty()) repo.db.importDao().insertRows(rowsToSave)
             repo.db.importDao().updateSession(ImportSession(
                 id = sid, fileName = name, fileHash = hash, fileType = type, kind = kind.name,
                 totalFound = result.rows.size + result.products.size,

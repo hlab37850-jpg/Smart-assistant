@@ -91,7 +91,7 @@ fun ReviewScreen(nav: NavController, sessionId: Long) {
                                         approved.forEach { r ->
                                             if (kind == ImportKind.PRODUCT.name) {
                                                 repo.upsertProduct(com.smartassistant.app.data.local.entity.Product(
-                                                    nameRaw = r.nameRaw), r.debit)
+                                                    nameRaw = r.nameRaw, unit = r.currency), r.debit)
                                             } else {
                                                 val ex = repo.db.customerDao().byNormalizedName(r.nameNormalized)
                                                 val net = r.debit - r.credit
