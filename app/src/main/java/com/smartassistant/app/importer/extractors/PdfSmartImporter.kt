@@ -13,135 +13,192 @@ import java.io.File
 import java.text.Normalizer
 
 /**
- * محرك نهائي مبني على البنية الحقيقية للملفين:
- * - كل سجل = سطر واحد مفصول بـ |
- * - النص العربي معكوس الأحرف -> تصحيح BiDi (عكس الكلمات + NFKD)
+ * محرك PDF النهائي - يعالج:
+ * 1. النص العربي المعكوس (Arabic Presentation Forms)
+ * 2. السطور المفصولة بـ |
+ * 3. استخراج العملاء والأصناف
  */
 object PdfSmartImporter {
 
     private val FOOTER = Regex("\\d{1,4} \\d{4}-\\d{2}-\\d{2}")
-    private val TOTAL = Regex("[إا]جمالي|المجموع")
+    private val TOTAL = Regex("[إا]جمالي|المجموع|الإجمالي|الاجمالي")
+    
+    // فحص إذا كان النص يحتوي على حروف عربية معكوسة (Presentation Forms)
+    private fun isArabicPresentationForm(c: Char): Boolean =
+        c in '\uFE70'..'\uFEFF'
+    
+    // عكس الحروف العربية المعكوسة وتطبيعها
+    private fun reverseArabicWord(word: String): String {
+        if (word.isEmpty()) return word
+        val hasArabic = word.any { isArabicPresentationForm(it) }
+        if (!hasArabic) return word
+        
+        // عكس الكلمة
+        val reversed = word.reversed()
+        // تطبيع NFKD يحول Presentation Forms إلى حروف أساسية
+        return Normalizer.normalize(reversed, Normalizer.Form.NFKD)
+    }
+    
+    // معالجة سطر كامل: عكس الكلمات العربية المعكوسة
+    private fun fixArabicText(text: String): String {
+        return text.split(' ').map { reverseArabicWord(it) }.joinToString(" ")
+    }
+    
+    // استخراج الخلايا من سطر مفصول بـ |
+    private fun extractCells(line: String): List<String> {
+        return line.split("|")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .map { fixArabicText(it) }
+    }
+    
+    // فحص إذا كان السطر ضوضاء (عنوان، رأس، فاصل، تذييل، إجمالي)
+    private fun isNoise(line: String, cells: List<String>): Boolean {
+        if (cells.isEmpty()) return true
+        if (cells.size < 2) return true
+        
+        val joined = cells.joinToString(" ")
+        
+        // الفواصل
+        if (line.contains("---") || line.contains("===")) return true
+        
+        // التذييل (رقم صفحة + تاريخ)
+        if (FOOTER.containsMatchIn(line)) return true
+        
+        // الإجماليات
+        if (TOTAL.containsMatchIn(joined)) return true
+        
+        // العناوين المتكررة
+        if (cells.distinct().size == 1) return true
+        
+        // رؤوس الأعمدة
+        if (joined.contains("العملة") && joined.contains("مدين")) return true
+        if (joined.contains("الكمية") && joined.contains("الصنف")) return true
+        if (joined.contains("عام#العملاء") || joined.contains("المخزون المتبقي")) return true
+        
+        return false
+    }
 
     fun parse(file: File, shopName: String?, kind: ImportKind, session: Long): ImportEngine.AnalyzeResult {
         val out = ImportEngine.AnalyzeResult()
+        
         PDDocument.load(file).use { doc ->
             val stripper = PDFTextStripper()
             stripper.setSortByPosition(true)
             stripper.setEndPage(minOf(doc.numberOfPages, 300))
-            val lines = stripper.getText(doc).lines()
-            if (kind == ImportKind.CUSTOMER) parseCustomers(lines, session, out)
-            else parseProducts(lines, session, out)
+            val text = stripper.getText(doc)
+            
+            var rowNum = 0
+            for (rawLine in text.lines()) {
+                val line = rawLine.trim()
+                if (line.isEmpty() || !line.contains("|")) continue
+                
+                val cells = extractCells(line)
+                if (isNoise(line, cells)) continue
+                
+                rowNum++
+                if (kind == ImportKind.CUSTOMER) {
+                    parseCustomer(cells, session, rowNum, out)
+                } else {
+                    parseProduct(cells, session, rowNum, out)
+                }
+            }
         }
         return out
     }
 
-    // ===== تصحيح العربي المعكوس =====
-    private fun isArabic(c: Char): Boolean =
-        (c in '؀'..'\u06FF') || (c in '\u0750'..'\u077F') ||
-        (c in '\uFB50'..'\uFDFF') || (c in '\uFE70'..'\uFEFF')
-
-    private fun fixWord(w: String): String {
-        val sb = StringBuilder()
+    /**
+     * عملاء: [العملة] [دائن] [مدين] [الاسم]
+     * مثال: | ريال يمني | 0 | 38,360 | حمزة صاحب الثلج |
+     */
+    private fun parseCustomer(cells: List<String>, session: Long, rowNum: Int, out: ImportEngine.AnalyzeResult) {
+        if (cells.size < 3) { out.ignored++; return }
+        
+        var currency: String? = null
+        var credit = 0.0
+        var debit = 0.0
+        var name: String? = null
+        
         var i = 0
-        while (i < w.length) {
-            val ar = isArabic(w[i])
-            var j = i
-            while (j < w.length && isArabic(w[j]) == ar) j++
-            val seg = w.substring(i, j)
-            if (ar) {
-                val rev = StringBuilder()
-                for (k in seg.length - 1 downTo 0) rev.append(seg[k])
-                sb.append(Normalizer.normalize(rev.toString(), Normalizer.Form.NFKD))
-            } else sb.append(seg)
-            i = j
+        
+        // الخلية الأولى قد تكون العملة
+        if (i < cells.size && NumberParser.parse(cells[i]).value == null) {
+            currency = cells[i]
+            i++
         }
-        return sb.toString()
+        
+        // دائن (له)
+        if (i < cells.size) {
+            credit = NumberParser.parse(cells[i]).value ?: 0.0
+            i++
+        }
+        
+        // مدين (عليه)
+        if (i < cells.size) {
+            debit = NumberParser.parse(cells[i]).value ?: 0.0
+            i++
+        }
+        
+        // الاسم (باقي الخلايا)
+        name = cells.drop(i).joinToString(" ").trim()
+        
+        if (name.isNullOrEmpty()) { out.ignored++; return }
+        
+        val t = ArabicNormalizer.process(name)
+        out.rows.add(ImportRawRow(
+            sessionId = session, pageNumber = 0, rowNumber = rowNum,
+            nameRaw = t.raw, nameDisplay = t.display, nameNormalized = t.normalized,
+            credit = credit, debit = debit,
+            currency = currency, net = debit - credit,
+            status = "VALID", confidenceScore = 95,
+            sourceCoordinates = "line$rowNum", issues = null, approved = 1))
+        out.totalCredit += credit
+        out.totalDebit += debit
     }
 
-    private fun fixCell(cell: String): String =
-        cell.split(' ').filter { it.isNotEmpty() }.map { fixWord(it) }.reversed().joinToString(" ")
-
-    private fun cellsOf(line: String): List<String> =
-        line.split('|').map { it.trim() }.filter { it.isNotEmpty() && !FOOTER.containsMatchIn(it) }
-
-    // ===== العملاء: | العملة | دائن | مدين | الاسم | =====
-    private fun parseCustomers(lines: List<String>, session: Long, out: ImportEngine.AnalyzeResult) {
-        var rowNum = 0
-        for (raw in lines) {
-            val line = raw.trim()
-            if (line.isEmpty() || !line.contains('|')) continue
-            val cells = cellsOf(line)
-            if (cells.size < 2) continue
-            if (cells.distinct().size == 1) continue
-            val fixed = cells.map { fixCell(it) }
-            val joined = fixed.joinToString(" ")
-            if (TOTAL.containsMatchIn(joined)) continue
-            if (joined.contains("العملة") && joined.contains("مدين")) continue
-            if (joined.contains("#")) continue
-            if (fixed.size < 4) continue
-            if (NumberParser.parse(fixed[0]).value != null) continue
-            val credit = NumberParser.parse(fixed[1]).value
-            val debit = NumberParser.parse(fixed[2]).value
-            val name = fixed.drop(3).joinToString(" ").trim()
-            if (credit == null || debit == null || name.isEmpty()) { out.ignored++; continue }
-            rowNum++
-            val t = ArabicNormalizer.process(name)
-            out.rows.add(ImportRawRow(
-                sessionId = session, pageNumber = 0, rowNumber = rowNum,
-                nameRaw = t.raw, nameDisplay = t.display, nameNormalized = t.normalized,
-                credit = credit, debit = debit, currency = fixed[0],
-                net = debit - credit, status = "VALID", confidenceScore = 95,
-                sourceCoordinates = "line$rowNum", issues = null, approved = 1))
-            out.totalCredit += credit
-            out.totalDebit += debit
+    /**
+     * أصناف: [الكمية] [الوحدة] [الصنف] [المخزن]
+     * مثال: | 112 | حبة | ركب أمريكي سن نحاس 1/2 هـ | المخزن الرئيسي |
+     */
+    private fun parseProduct(cells: List<String>, session: Long, rowNum: Int, out: ImportEngine.AnalyzeResult) {
+        if (cells.size < 2) { out.ignored++; return }
+        
+        val qty = NumberParser.parse(cells[0]).value
+        if (qty == null) { out.ignored++; return }
+        
+        var i = 1
+        var unit: String? = null
+        
+        // الوحدة (إذا كانت خلية بدون رقم)
+        if (i < cells.size && NumberParser.parse(cells[i]).value == null) {
+            val candidate = cells[i]
+            if (candidate != "-" && !candidate.contains("المخزن") && !candidate.contains("الرئيسي")) {
+                unit = candidate
+                i++
+            }
         }
-    }
-
-    // ===== الأصناف: | الكمية | الوحدة | الصنف | المخزن الرئيسي | =====
-    private class PRec(var name: String, val unit: String?, val qty: Double)
-
-    private fun parseProducts(lines: List<String>, session: Long, out: ImportEngine.AnalyzeResult) {
-        val list = mutableListOf<PRec>()
-        for (raw in lines) {
-            val line = raw.trim()
-            if (line.isEmpty() || !line.contains('|')) continue
-            val cells = cellsOf(line)
-            if (cells.size < 2) continue
-            if (cells.distinct().size == 1) continue
-            val fixed = cells.map { fixCell(it) }
-            val joined = fixed.joinToString(" ")
-            if (TOTAL.containsMatchIn(joined)) continue
-            if (joined.contains("الكمية") && joined.contains("الصنف")) continue
-            if (joined.contains("#")) continue
-            val qty = NumberParser.parse(fixed[0]).value
-            if (qty != null) {
-                val unit = if (fixed.size > 1 && NumberParser.parse(fixed[1]).value == null && fixed[1] != "-") fixed[1] else null
-                val start = if (unit != null) 2 else 1
-                val name = if (fixed.size > start)
-                    fixed.subList(start, fixed.size).filterNot { it.contains("المخزن") || it == "الرئيسي" }.joinToString(" ").trim()
-                else ""
-                if (name.isNotEmpty()) list.add(PRec(name, unit, qty))
-            } else if (list.isNotEmpty()) {
-                val extra = fixed.filterNot { it.contains("المخزن") || it == "الرئيسي" }.joinToString(" ").trim()
-                if (extra.isNotEmpty()) {
-                    val last = list[list.size - 1]
-                    last.name = (last.name + " " + extra).trim()
-                }
-            } else out.ignored++
+        
+        // الصنف (باقي الخلايا حتى "المخزن الرئيسي")
+        val nameParts = mutableListOf<String>()
+        while (i < cells.size) {
+            val cell = cells[i]
+            if (cell.contains("المخزن") || cell.contains("الرئيسي")) {
+                i++
+                continue
+            }
+            nameParts.add(cell)
+            i++
         }
-        list.forEachIndexed { idx, p ->
-            val t = ArabicNormalizer.process(p.name)
-            out.rows.add(ImportRawRow(
-                sessionId = session, pageNumber = 0, rowNumber = idx + 1,
-                nameRaw = t.raw, nameDisplay = t.display, nameNormalized = t.normalized,
-                credit = 0.0, debit = p.qty, currency = p.unit,
-                net = p.qty, status = "VALID", confidenceScore = 95,
-                sourceCoordinates = "prod$idx", issues = null, approved = 1))
-            out.products.add(Product(nameRaw = t.raw, unit = p.unit) to p.qty)
-        }
+        val name = nameParts.joinToString(" ").trim()
+        
+        if (name.isEmpty()) { out.ignored++; return }
+        
+        val t = ArabicNormalizer.process(name)
+        out.products.add(Product(nameRaw = t.raw, unit = unit) to qty)
     }
 }
 
+/** حذف بيانات جلسة سابقة + تنظيف البيانات غير المرتبطة */
 suspend fun deleteSessionData(repo: MainRepo, sid: Long) {
     repo.db.customerDao().deleteBySession(sid)
     runCatching { repo.db.customerDao().deleteUnlinked() }
