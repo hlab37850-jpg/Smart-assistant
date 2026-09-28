@@ -25,7 +25,7 @@ jobs:
 
       - name: Ensure SDK packages (platform 35 + build-tools)
         run: |
-          yes | §{ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
           §{ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;34.0.0" || true
 
       - name: Setup Gradle 8.7
@@ -44,7 +44,7 @@ jobs:
 
       - name: Build signed APK + AAB
         env:
-          KS_PATH: ${{ github.workspace }}
+          KS_PATH: ../release.keystore
           KS_PASS: android123
           KS_ALIAS: sa
         run: |
