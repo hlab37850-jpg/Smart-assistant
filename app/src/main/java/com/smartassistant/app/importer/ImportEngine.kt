@@ -95,7 +95,24 @@ object ImportEngine {
             if (kind == ImportKind.PRODUCT) {
                 val qty = numOf(r, qtyCol).value ?: lastNum(r, rawName).value ?: 0.0
                 val code = if (codeCol >= 0) r.getOrElse(codeCol) { "" }.trim().ifEmpty { null } else null
-                out.products += Product(nameRaw = nameTriple.raw, code = code) to qty
+                val unit = if (codeCol >= 0 && codeCol + 1 < r.size) r.getOrElse(codeCol + 1) { "" }.trim().ifEmpty { null } else null
+                out.products += Product(nameRaw = nameTriple.raw, code = code, unit = unit) to qty
+                out.rows += ImportRawRow(
+                    sessionId = session,
+                    pageNumber = page,
+                    rowNumber = rowNum,
+                    nameRaw = nameTriple.raw,
+                    nameDisplay = nameTriple.display,
+                    nameNormalized = nameTriple.normalized,
+                    debit = qty,
+                    net = qty,
+                    currency = unit,
+                    status = "VALID",
+                    confidenceScore = if (qty >= 0.0) 95 else 60,
+                    sourceCoordinates = "p$page:r$rowNum",
+                    approved = 1
+                )
+                out.totalDebit += qty
                 return@forEach
             }
 
@@ -128,8 +145,9 @@ object ImportEngine {
                 }
             }
             val net = debitV - creditV
-            val phone = if (phoneCol >= 0) r.getOrElse(phoneCol) { "" }.replace(Regex("[^0-9+]"),"").ifEmpty { null } else null
-            val code = if (codeCol >= 0) r.getOrElse(codeCol) { "" }.trim().ifEmpty { null } else null
+            val phone = if (phoneCol >= 0) r.getOrElse(phoneCol) { "" }
+                .replace(Regex("[^0-9+]"), "")
+                .ifEmpty { null } else null
 
             out.rows += ImportRawRow(
                 sessionId = session,
@@ -138,6 +156,7 @@ object ImportEngine {
                 nameRaw = nameTriple.raw,
                 nameDisplay = nameTriple.display,
                 nameNormalized = nameTriple.normalized,
+                phone = phone,
                 credit = creditV,
                 debit = debitV,
                 currency = null,

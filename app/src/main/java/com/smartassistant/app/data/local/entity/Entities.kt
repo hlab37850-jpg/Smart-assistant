@@ -145,6 +145,7 @@ data class ImportRawRow(
     val nameRaw: String,
     val nameDisplay: String,
     val nameNormalized: String,
+    val phone: String? = null,
     val credit: Double = 0.0,
     val debit: Double = 0.0,
     val currency: String? = null,
