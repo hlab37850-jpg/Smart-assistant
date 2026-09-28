@@ -71,12 +71,12 @@ fun ReviewScreen(nav: NavController, sessionId: Long) {
                 Card(colors = CardDefaults.cardColors(containerColor = AppColors.DeepBlue)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
-                            "سجلات: §{dataRows.size} | سليم: §{dataRows.count { it.status == "VALID" }} | مراجعة: §{dataRows.count { it.status == "WARNING" }}",
+                            "سجلات: ${dataRows.size} | سليم: ${dataRows.count { it.status == "VALID" }} | مراجعة: ${dataRows.count { it.status == "WARNING" }}",
                             color = Color.White,
                             style = MaterialTheme.typography.titleSmall
                         )
                         Text(
-                            "المستخرج — لك: §{Fmt.money(totalCredit)} | عليك: §{Fmt.money(totalDebit)}",
+                            "المستخرج — لك: ${Fmt.money(totalCredit)} | عليك: ${Fmt.money(totalDebit)}",
                             color = Color.White,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -186,11 +186,11 @@ fun ReviewScreen(nav: NavController, sessionId: Long) {
 
                                 result.fold(
                                     onSuccess = {
-                                        msg = "تم الاستيراد ✔ (§{approved.size} سجل)"
+                                        msg = "تم الاستيراد ✔ (${approved.size} سجل)"
                                         reload()
                                     },
                                     onFailure = {
-                                        msg = "فشل الاستيراد: §{it.message ?: "خطأ غير معروف"}"
+                                        msg = "فشل الاستيراد: ${it.message ?: "خطأ غير معروف"}"
                                     }
                                 )
                                 busy = false
@@ -198,7 +198,7 @@ fun ReviewScreen(nav: NavController, sessionId: Long) {
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = AppColors.PrimaryBlue)
                     ) {
-                        Text("استيراد المعتمد (§{approvedCount})", color = Color.White)
+                        Text("استيراد المعتمد (${approvedCount})", color = Color.White)
                     }
                 }
             }
@@ -222,7 +222,7 @@ fun ReviewScreen(nav: NavController, sessionId: Long) {
                                 Text(r.phone!!, style = MaterialTheme.typography.bodySmall, color = AppColors.Gray)
                             }
                             Text(
-                                "لك: §{Fmt.money(r.credit)} | عليك: §{Fmt.money(r.debit)}",
+                                "لك: ${Fmt.money(r.credit)} | عليك: ${Fmt.money(r.debit)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = AppColors.Gray
                             )
