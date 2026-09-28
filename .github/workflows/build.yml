@@ -44,7 +44,7 @@ jobs:
 
       - name: Build signed APK + AAB
         env:
-          KS_PATH: §{§{ github.workspace §}}
+          KS_PATH: ${{ github.workspace }}
           KS_PASS: android123
           KS_ALIAS: sa
         run: |
