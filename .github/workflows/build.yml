@@ -3,6 +3,7 @@ name: Build APK & AAB
 on:
   workflow_dispatch:
   push:
+    branches: [ main, final-smart-assistant ]
     tags: [ 'v*' ]
 
 jobs:
@@ -22,8 +23,8 @@ jobs:
 
       - name: Ensure SDK packages (platform 35 + build-tools)
         run: |
-          yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;34.0.0" || true
+          yes | §{ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          §{ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;34.0.0" || true
 
       - name: Setup Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
@@ -41,7 +42,7 @@ jobs:
 
       - name: Build signed APK + AAB
         env:
-          KS_PATH: ${{ github.workspace }}/release.keystore
+          KS_PATH: §{§{ github.workspace §}}
           KS_PASS: android123
           KS_ALIAS: sa
         run: |
