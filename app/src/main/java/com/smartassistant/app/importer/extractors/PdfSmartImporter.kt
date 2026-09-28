@@ -15,26 +15,32 @@ import java.text.Normalizer
 import kotlin.math.abs
 
 /**
- * محرك استيراد PDF متخصص في التقارير الجدولية العربية.
+ * محرك PDF مبني على إحداثيات الخلايا الفعلية في التقرير.
  *
- * الملفات المستهدفة حالياً:
- * 1) تقرير العملاء: الاسم | مدين | دائن | العملة
- * 2) تقرير المخزون: اسم المخزن | الصنف | الوحدة | الكمية
+ * PDFBox قد يعيد النص العربي على أكثر من سطر منطقي، أو يخلط ترتيب
+ * الأعمدة بسبب RTL. لذلك لا نعتمد على getText()/writeString().
  *
- * لا نعتمد على أسطر النص التي ينتجها PDFBox مباشرة.
- * نجمع الكلمات حسب إحداثي Y أولاً حتى لا تتحول خلية في نفس الصف
- * إلى سطر مستقل.
+ * التقارير المستهدفة:
+ * 1) العملاء: الاسم | مدين | دائن | العملة
+ * 2) المخزون: اسم المخزن | الصنف | الوحدة | الكمية
  */
 object PdfSmartImporter {
 
-    private data class PdfLine(
+    private data class PositionedChar(
         val page: Int,
+        val x: Float,
         val y: Float,
         val text: String
     )
 
-    private class TableStripper : PDFTextStripper() {
-        val lines = mutableListOf<PdfLine>()
+    private data class VisualRow(
+        val page: Int,
+        val y: Float,
+        val chars: List<PositionedChar>
+    )
+
+    private class CoordinateStripper : PDFTextStripper() {
+        val chars = mutableListOf<PositionedChar>()
 
         init {
             sortByPosition = true
@@ -42,14 +48,15 @@ object PdfSmartImporter {
             lineSeparator = "\n"
         }
 
-        override fun writeString(text: String, textPositions: MutableList<TextPosition>) {
-            if (text.isBlank() || textPositions.isEmpty()) return
+        override fun processTextPosition(text: TextPosition) {
+            val unicode = text.unicode ?: return
+            if (unicode.isBlank()) return
 
-            val y = textPositions.map { it.yDirAdj }.average().toFloat()
-            lines += PdfLine(
+            chars += PositionedChar(
                 page = currentPageNo,
-                y = y,
-                text = text
+                x = text.xDirAdj,
+                y = text.yDirAdj,
+                text = unicode
             )
         }
     }
@@ -83,23 +90,99 @@ object PdfSmartImporter {
             Normalizer.Form.NFKC
         ).replace(Regex("\\s+"), " ").trim()
 
-    private fun tokenize(line: String): List<String> =
-        clean(line)
-            .split(Regex("\\s+|\\|"))
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
+    private fun isDate(text: String): Boolean =
+        DATE.matches(clean(text))
+
+    private fun isNumericChar(text: String): Boolean =
+        text.length == 1 && (text[0].isDigit() || text[0] in ".,-")
+
+    private fun isNumericToken(text: String): Boolean {
+        val s = clean(text)
+        if (s.isBlank()) return false
+        return s.all { it.isDigit() || it in ".,-" }
+    }
+
+    private fun groupVisualRows(chars: List<PositionedChar>): List<VisualRow> {
+        if (chars.isEmpty()) return emptyList()
+
+        val rows = mutableListOf<MutableList<PositionedChar>>()
+
+        for (ch in chars.sortedWith(compareBy<PositionedChar> { it.page }.thenBy { it.y })) {
+            val last = rows.lastOrNull()
+            if (
+                last != null &&
+                last.first().page == ch.page &&
+                abs(last.map { it.y }.average().toFloat() - ch.y) <= 3.5f
+            ) {
+                last += ch
+            } else {
+                rows += mutableListOf(ch)
+            }
+        }
+
+        return rows.map { row ->
+            VisualRow(
+                page = row.first().page,
+                y = row.map { it.y }.average().toFloat(),
+                chars = row.toList()
+            )
+        }
+    }
+
+    private fun rtlText(
+        chars: List<PositionedChar>,
+        minX: Float,
+        maxX: Float
+    ): String {
+        return chars
+            .filter { it.x >= minX && it.x < maxX }
+            .sortedByDescending { it.x }
+            .joinToString("") { it.text }
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
+    private fun numericText(
+        chars: List<PositionedChar>,
+        minX: Float,
+        maxX: Float
+    ): String {
+        return chars
+            .filter {
+                it.x >= minX &&
+                    it.x < maxX &&
+                    isNumericChar(it.text)
+            }
+            .sortedBy { it.x }
+            .joinToString("") { it.text }
+            .trim()
+    }
+
+    private fun textWithoutNumericChars(
+        chars: List<PositionedChar>,
+        minX: Float,
+        maxX: Float
+    ): String {
+        return chars
+            .filter {
+                it.x >= minX &&
+                    it.x < maxX &&
+                    !isNumericChar(it.text)
+            }
+            .sortedByDescending { it.x }
+            .joinToString("") { it.text }
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
 
     /**
-     * تقرير المخزون في العينة يستخدم الفاصلة كفاصل عشري:
      * 22,275 = 22.275
-     * 0,802 = 0.802
-     * لذلك التحويل خاص بالكميات فقط، بينما أرقام العملاء
-     * مثل 46,375 تبقى 46,375.
+     * 0,802  = 0.802
+     * بينما القيم ذات النقطة تبقى عشرية طبيعية.
      */
     private fun parseQuantity(raw: String): Double? {
-        val s = NumberParser.normalize(raw)
-            .replace(" ", "")
-            .trim()
+        val s = NumberParser.normalize(raw).replace(" ", "").trim()
+        if (s.isBlank()) return null
 
         if (s.matches(Regex("\\d+,\\d{1,3}"))) {
             return s.replace(',', '.').toDoubleOrNull()
@@ -108,39 +191,8 @@ object PdfSmartImporter {
         return NumberParser.parse(s).value
     }
 
-    private fun isDateOrFooterToken(token: String): Boolean =
-        DATE.matches(token) || token == "2026-08-31"
-
-    private fun groupLines(lines: List<PdfLine>): List<PdfLine> {
-        if (lines.isEmpty()) return emptyList()
-
-        val sorted = lines.sortedWith(
-            compareBy<PdfLine> { it.page }.thenBy { it.y }
-        )
-
-        val groups = mutableListOf<MutableList<PdfLine>>()
-
-        for (line in sorted) {
-            val last = groups.lastOrNull()
-            if (
-                last != null &&
-                last.last().page == line.page &&
-                abs(last.map { it.y }.average().toFloat() - line.y) <= 4.0f
-            ) {
-                last += line
-            } else {
-                groups += mutableListOf(line)
-            }
-        }
-
-        return groups.map { group ->
-            PdfLine(
-                page = group.first().page,
-                y = group.map { it.y }.average().toFloat(),
-                text = group.joinToString(" ") { it.text }.let(::clean)
-            )
-        }
-    }
+    private fun isDateOrFooter(text: String): Boolean =
+        isDate(text) || text.contains("2026-08-31")
 
     fun parse(
         file: File,
@@ -155,44 +207,59 @@ object PdfSmartImporter {
                 "ملف PDF لا يحتوي صفحات."
             }
 
-            val stripper = TableStripper().apply {
+            val stripper = CoordinateStripper().apply {
                 startPage = 1
                 endPage = minOf(document.numberOfPages, 300)
             }
 
             stripper.getText(document)
 
-            val rows = groupLines(stripper.lines)
+            val rows = groupVisualRows(stripper.chars)
             if (rows.isEmpty()) {
-                throw IllegalStateException("لم يتم استخراج أي صف من PDF.")
+                throw IllegalStateException("لم يتم استخراج أي نص قابل للقراءة من PDF.")
             }
 
             var rowNumber = 0
 
             for (row in rows) {
-                val line = clean(row.text)
-                if (line.isBlank()) continue
-                if (shopName != null && shopName.isNotBlank() && line.contains(shopName)) continue
-                if (TOTAL_HEADER.containsMatchIn(line)) continue
+                val rowText = clean(
+                    row.chars.sortedBy { it.x }.joinToString(" ") { it.text }
+                )
+
+                if (rowText.isBlank()) continue
+                if (shopName != null && shopName.isNotBlank() && rowText.contains(shopName)) continue
+                if (TOTAL_HEADER.containsMatchIn(rowText)) continue
 
                 when (kind) {
                     ImportKind.CUSTOMER -> {
-                        if (CUSTOMER_HEADER.containsMatchIn(line)) continue
-                        val parsed = parseCustomerRow(line) ?: continue
+                        if (CUSTOMER_HEADER.containsMatchIn(rowText)) continue
 
+                        val parsed = parseCustomerRow(row) ?: continue
                         rowNumber++
+
                         addCustomer(
-                            parsed, session, rowNumber, row.page, row.y, out
+                            parsed = parsed,
+                            session = session,
+                            rowNumber = rowNumber,
+                            page = row.page,
+                            y = row.y,
+                            out = out
                         )
                     }
 
                     ImportKind.PRODUCT -> {
-                        if (STOCK_HEADER.containsMatchIn(line)) continue
-                        val parsed = parseStockRow(line) ?: continue
+                        if (STOCK_HEADER.containsMatchIn(rowText)) continue
 
+                        val parsed = parseStockRow(row) ?: continue
                         rowNumber++
+
                         addProduct(
-                            parsed, session, rowNumber, row.page, row.y, out
+                            parsed = parsed,
+                            session = session,
+                            rowNumber = rowNumber,
+                            page = row.page,
+                            y = row.y,
+                            out = out
                         )
                     }
                 }
@@ -203,10 +270,10 @@ object PdfSmartImporter {
             throw IllegalStateException(
                 when (kind) {
                     ImportKind.CUSTOMER ->
-                        "تم فتح PDF، لكن لم يتم العثور على صفوف عملاء بالشكل: الاسم + مدين + دائن + العملة."
+                        "تم فتح PDF، لكن لم يتم العثور على صفوف عملاء. تم فحص خلايا الاسم والمدين والدائن والعملة بالإحداثيات."
 
                     ImportKind.PRODUCT ->
-                        "تم فتح PDF، لكن لم يتم العثور على صفوف مخزون بالشكل: المخزن + الصنف + الوحدة + الكمية."
+                        "تم فتح PDF، لكن لم يتم العثور على صفوف مخزون. تم فحص خلايا المخزن والصنف والوحدة والكمية بالإحداثيات."
                 }
             )
         }
@@ -222,41 +289,35 @@ object PdfSmartImporter {
     )
 
     /**
-     * الشكل الحقيقي:
-     * عدنان ابراهيم درويش(البنشر) 46,375 0 ريال يمني
+     * الإحداثيات الفعلية في تقرير العملاء:
+     * العملة 0..105، الدائن 105..195، المدين 195..305، الاسم 305..MAX.
      */
-    private fun parseCustomerRow(line: String): CustomerParsed? {
-        val tokens = tokenize(line)
-        if (tokens.size < 4) return null
+    private fun parseCustomerRow(row: VisualRow): CustomerParsed? {
+        val chars = row.chars
 
-        val numericIndexes = tokens.indices.filter {
-            !isDateOrFooterToken(tokens[it]) &&
-                NumberParser.parse(tokens[it]).value != null
-        }
+        val currency = rtlText(chars, 0f, 105f)
+        if (!currency.contains("ريال", ignoreCase = true)) return null
 
-        if (numericIndexes.size < 2) return null
+        val creditRaw = numericText(chars, 105f, 195f)
+        val debitRaw = numericText(chars, 195f, 305f)
 
-        val first = numericIndexes[0]
-        val second = numericIndexes[1]
+        if (creditRaw.isBlank() || debitRaw.isBlank()) return null
+        if (!isNumericToken(creditRaw) || !isNumericToken(debitRaw)) return null
 
-        if (first <= 0) return null
+        val credit = NumberParser.parse(creditRaw).value ?: return null
+        val debit = NumberParser.parse(debitRaw).value ?: return null
 
-        val name = tokens.subList(0, first).joinToString(" ").trim()
+        val name = textWithoutNumericChars(chars, 305f, Float.MAX_VALUE)
         if (name.isBlank()) return null
-
-        val currency = tokens.drop(second + 1).joinToString(" ").trim()
-        if (currency.isBlank() || !currency.contains("ريال", ignoreCase = true)) {
-            return null
-        }
-
-        val debit = NumberParser.parse(tokens[first]).value ?: return null
-        val credit = NumberParser.parse(tokens[second]).value ?: return null
+        if (CUSTOMER_HEADER.containsMatchIn(name)) return null
+        if (TOTAL_HEADER.containsMatchIn(name)) return null
+        if (isDateOrFooter(name)) return null
 
         return CustomerParsed(
-            name = name,
+            name = clean(name),
             debit = abs(debit),
             credit = abs(credit),
-            currency = currency
+            currency = clean(currency)
         )
     }
 
@@ -282,7 +343,7 @@ object PdfSmartImporter {
             currency = parsed.currency,
             net = parsed.debit - parsed.credit,
             status = "VALID",
-            confidenceScore = 98,
+            confidenceScore = 99,
             sourceCoordinates = "pdf:p" + page + ":y" + y,
             issues = null,
             approved = 1
@@ -300,68 +361,39 @@ object PdfSmartImporter {
     )
 
     /**
-     * الشكل الحقيقي:
-     * المخزن الرئيسي | الصنف | الوحدة | الكمية
-     *
-     * نبحث عن آخر رقم باعتباره الكمية، ثم الوحدة قبله.
-     * بهذا لا تتحول أرقام داخل اسم الصنف مثل 2/1هـ أو 4×6
-     * إلى كمية.
+     * الإحداثيات الفعلية في تقرير المخزون:
+     * الكمية 0..150، الوحدة 150..195، الصنف 195..450، المخزن 450..MAX.
      */
-    private fun parseStockRow(line: String): StockParsed? {
-        val tokens = tokenize(line)
-        if (tokens.size < 4) return null
+    private fun parseStockRow(row: VisualRow): StockParsed? {
+        val chars = row.chars
 
-        val quantityIndex = tokens.indices.reversed().firstOrNull {
-            !isDateOrFooterToken(tokens[it]) && parseQuantity(tokens[it]) != null
-        } ?: return null
+        val quantityRaw = numericText(chars, 0f, 150f)
+        if (quantityRaw.isBlank()) return null
+        if (!isNumericToken(quantityRaw)) return null
 
-        if (quantityIndex <= 1) return null
+        val quantity = parseQuantity(quantityRaw) ?: return null
 
-        val quantity = parseQuantity(tokens[quantityIndex]) ?: return null
-        val unitIndex = findUnitIndex(tokens, quantityIndex) ?: return null
-        if (unitIndex <= 0 || unitIndex >= quantityIndex) return null
+        val unit = rtlText(chars, 150f, 195f)
+        if (unit.isBlank()) return null
 
-        val unit = tokens[unitIndex]
-        val prefix = tokens.subList(0, unitIndex)
+        val normalizedUnit = clean(unit)
+        if (normalizedUnit !in UNITS) return null
 
-        val warehouse: String
-        val nameStart: Int
+        val name = rtlText(chars, 195f, 450f)
+        if (name.isBlank()) return null
+        if (STOCK_HEADER.containsMatchIn(name)) return null
+        if (TOTAL_HEADER.containsMatchIn(name)) return null
+        if (isDateOrFooter(name)) return null
 
-        if (
-            prefix.size >= 2 &&
-            prefix[0] == "المخزن" &&
-            prefix[1] == "الرئيسي"
-        ) {
-            warehouse = "المخزن الرئيسي"
-            nameStart = 2
-        } else {
-            warehouse = prefix.firstOrNull() ?: return null
-            nameStart = 1
-        }
-
-        val name = tokens.subList(nameStart, unitIndex)
-            .joinToString(" ")
-            .trim()
-
-        if (name.isBlank() || STOCK_HEADER.containsMatchIn(name)) return null
+        val warehouse = rtlText(chars, 450f, Float.MAX_VALUE)
+        if (warehouse.isBlank()) return null
 
         return StockParsed(
             warehouse = warehouse,
-            name = name,
-            unit = unit,
+            name = clean(name),
+            unit = normalizedUnit,
             quantity = abs(quantity)
         )
-    }
-
-    private fun findUnitIndex(tokens: List<String>, quantityIndex: Int): Int? {
-        val direct = quantityIndex - 1
-        if (direct >= 0 && UNITS.contains(tokens[direct])) return direct
-
-        for (i in (quantityIndex - 1) downTo maxOf(0, quantityIndex - 3)) {
-            if (UNITS.contains(tokens[i])) return i
-        }
-
-        return null
     }
 
     private fun addProduct(
