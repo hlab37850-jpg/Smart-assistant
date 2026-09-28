@@ -15,14 +15,13 @@ import java.text.Normalizer
 import kotlin.math.abs
 
 /**
- * محرك PDF مبني على إحداثيات الخلايا الفعلية في التقرير.
- *
- * PDFBox قد يعيد النص العربي على أكثر من سطر منطقي، أو يخلط ترتيب
- * الأعمدة بسبب RTL. لذلك لا نعتمد على getText()/writeString().
- *
- * التقارير المستهدفة:
- * 1) العملاء: الاسم | مدين | دائن | العملة
- * 2) المخزون: اسم المخزن | الصنف | الوحدة | الكمية
+ * محرك PDF متعدد الطبقات:
+ * 1) استخراج النص الأصلي مع إحداثيات X/Y.
+ * 2) إعادة بناء الصفوف بصرياً.
+ * 3) اكتشاف رؤوس الأعمدة ومعايرة الحدود تلقائياً.
+ * 4) تحليل كل خلية مستقلة عن ترتيب النص في PDF.
+ * 5) قواعد متخصصة للأرقام وRTL والفواصل العشرية.
+ * 6) عدم إسقاط الصف لمجرد أن عموداً رقمياً قيمته صفر/غير مرسوم.
  */
 object PdfSmartImporter {
 
@@ -37,6 +36,13 @@ object PdfSmartImporter {
         val page: Int,
         val y: Float,
         val chars: List<PositionedChar>
+    )
+
+    private data class HeaderCenters(
+        val first: Float,
+        val second: Float,
+        val third: Float,
+        val fourth: Float
     )
 
     private class CoordinateStripper : PDFTextStripper() {
@@ -78,14 +84,12 @@ object PdfSmartImporter {
 
     private val DATE = Regex("^\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}$")
 
-    // الوحدات الموجودة فعلياً في تقرير المخزون المرفوع، مع قبول "-" إذا كان
-    // التقرير يترك خانة الوحدة بشرطة بدلاً من حذف الصف.
     private val UNITS = setOf(
-        "حبة", "حبه", "باكت", "كيس", "علبة", "علب",
-        "لفة", "لفه", "ل", "ك", "كيلو", "كجم", "جرام",
-        "متر", "م", "قطعة", "قطعه", "صندوق", "كرتون",
-        "جالون", "برميل", "طقم", "زوج", "شدة", "درزن",
-        "قطمة", "دبة", "-"
+        "حبة", "حبه", "باكت", "باكيت", "كيس", "علبة", "علب",
+        "لفة", "لفه", "كيلو", "كجم", "جرام", "متر",
+        "قطعة", "قطعه", "صندوق", "كرتون", "جالون", "برميل",
+        "طقم", "زوج", "شدة", "درزن", "قطمة", "دبة",
+        "لتر", "ل", "ك", "-"
     )
 
     private fun clean(text: String): String =
@@ -99,33 +103,24 @@ object PdfSmartImporter {
             .replace(Regex("\\s+"), " ")
             .trim()
 
-    /**
-     * PDFBox يعيد بعض علامات الترقيم RTL بترتيب بصري معكوس:
-     * درويش)البنشر( بدلاً من درويش(البنشر).
-     */
     private fun normalizeRtlPunctuation(text: String): String =
         text
             .replace('(', '\uE000')
             .replace(')', '(')
             .replace('\uE000', ')')
 
-    private fun isDate(text: String): Boolean =
-        DATE.matches(clean(text))
+    private fun isDate(text: String): Boolean = DATE.matches(clean(text))
 
-    private fun isNumericChar(text: String): Boolean =
-        text.length == 1 && (text[0].isDigit() || text[0] in ".,-")
+    private fun isNumericLikeChar(text: String): Boolean =
+        text.length == 1 && (text[0].isDigit() || text[0] in ".,-/×*")
 
-    private fun isNumericToken(text: String): Boolean {
-        val s = clean(text)
-        if (s.isBlank()) return false
-        return s.all { it.isDigit() || it in ".,-" }
-    }
+    private fun rowText(row: VisualRow): String =
+        clean(row.chars.sortedBy { it.x }.joinToString(" ") { it.text })
 
     private fun groupVisualRows(chars: List<PositionedChar>): List<VisualRow> {
         if (chars.isEmpty()) return emptyList()
 
         val rows = mutableListOf<MutableList<PositionedChar>>()
-
         for (ch in chars.sortedWith(compareBy<PositionedChar> { it.page }.thenBy { it.y })) {
             val last = rows.lastOrNull()
             if (
@@ -148,22 +143,105 @@ object PdfSmartImporter {
         }
     }
 
-    private fun rtlText(
-        chars: List<PositionedChar>,
-        minX: Float,
-        maxX: Float
-    ): String {
-        return normalizeRtlPunctuation(
-            chars
-                .filter { it.x >= minX && it.x < maxX }
-                .sortedByDescending { it.x }
-                .joinToString("") { it.text }
-                .replace(Regex("\\s+"), " ")
-                .trim()
-        )
+    private fun headerClusters(row: VisualRow): List<Pair<String, Float>> {
+        val sorted = row.chars.sortedBy { it.x }
+        if (sorted.isEmpty()) return emptyList()
+
+        val groups = mutableListOf<MutableList<PositionedChar>>()
+        for (ch in sorted) {
+            val last = groups.lastOrNull()
+            if (last == null || ch.x - last.last().x <= 18f) {
+                if (last == null) groups += mutableListOf(ch) else last += ch
+            } else {
+                groups += mutableListOf(ch)
+            }
+        }
+
+        return groups.map { g ->
+            val text = normalizeRtlPunctuation(
+                g.sortedByDescending { it.x }.joinToString("") { it.text }
+            )
+            text to ((g.minOf { it.x } + g.maxOf { it.x }) / 2f)
+        }
     }
 
-    private fun numericText(
+    private fun findCenter(
+        clusters: List<Pair<String, Float>>,
+        aliases: List<String>
+    ): Float? =
+        clusters
+            .filter { (text, _) ->
+                aliases.any { alias -> clean(text).contains(alias, ignoreCase = true) }
+            }
+            .map { it.second }
+            .takeIf { it.isNotEmpty() }
+            ?.average()
+            ?.toFloat()
+
+    private fun detectCenters(
+        rows: List<VisualRow>,
+        kind: ImportKind,
+        pageWidth: Float
+    ): HeaderCenters {
+        val header = rows.firstOrNull { r ->
+            val t = rowText(r)
+            when (kind) {
+                ImportKind.CUSTOMER ->
+                    t.contains("العملة") &&
+                        t.contains(Regex("مدين|دائن")) &&
+                        t.contains(Regex("الإسم|الاسم"))
+
+                ImportKind.PRODUCT ->
+                    t.contains("الكمية") &&
+                        t.contains("الوحدة") &&
+                        t.contains("الصنف") &&
+                        t.contains("المخزن")
+            }
+        }
+
+        val clusters = header?.let(::headerClusters).orEmpty()
+
+        return when (kind) {
+            ImportKind.CUSTOMER -> HeaderCenters(
+                first = findCenter(clusters, listOf("العملة")) ?: pageWidth * 0.113f,
+                second = findCenter(clusters, listOf("دائن")) ?: pageWidth * 0.236f,
+                third = findCenter(clusters, listOf("مدين")) ?: pageWidth * 0.412f,
+                fourth = findCenter(clusters, listOf("الإسم", "الاسم")) ?: pageWidth * 0.910f
+            )
+
+            ImportKind.PRODUCT -> HeaderCenters(
+                first = findCenter(clusters, listOf("الكمية")) ?: pageWidth * 0.132f,
+                second = findCenter(clusters, listOf("الوحدة")) ?: pageWidth * 0.290f,
+                third = findCenter(clusters, listOf("الصنف")) ?: pageWidth * 0.501f,
+                fourth = findCenter(clusters, listOf("اسم", "المخزن")) ?: pageWidth * 0.838f
+            )
+        }
+    }
+
+    private fun boundaries(c: HeaderCenters): FloatArray = floatArrayOf(
+        (c.first + c.second) / 2f,
+        (c.second + c.third) / 2f,
+        (c.third + c.fourth) / 2f
+    )
+
+    private fun rtlCell(
+        chars: List<PositionedChar>,
+        minX: Float,
+        maxX: Float,
+        stripNumeric: Boolean = false
+    ): String {
+        val ordered = chars
+            .filter { it.x >= minX && it.x < maxX }
+            .sortedByDescending { it.x }
+
+        val raw = ordered
+            .filterNot { stripNumeric && isNumericLikeChar(it.text) }
+            .joinToString("") { it.text }
+
+        return normalizeRtlPunctuation(clean(raw))
+    }
+
+    private fun numericCell(
         chars: List<PositionedChar>,
         minX: Float,
         maxX: Float
@@ -172,46 +250,41 @@ object PdfSmartImporter {
             .filter {
                 it.x >= minX &&
                     it.x < maxX &&
-                    isNumericChar(it.text)
+                    it.text.length == 1 &&
+                    (it.text[0].isDigit() || it.text[0] in ".,-+")
             }
             .sortedBy { it.x }
             .joinToString("") { it.text }
             .trim()
     }
 
-    private fun textWithoutNumericChars(
+    private fun parseNumber(raw: String): Double? =
+        NumberParser.parse(clean(raw)).value
+
+    private fun parseQuantity(raw: String): Double? {
+        val s = clean(raw).replace(" ", "")
+        if (s.isBlank()) return null
+
+        val normalized = s.replace(',', '.')
+        return normalized.toDoubleOrNull() ?: NumberParser.parse(s).value
+    }
+
+    private fun extractUnit(
         chars: List<PositionedChar>,
         minX: Float,
         maxX: Float
     ): String {
-        return normalizeRtlPunctuation(
-            chars
-                .filter {
-                    it.x >= minX &&
-                        it.x < maxX &&
-                        !isNumericChar(it.text)
-                }
-                .sortedByDescending { it.x }
-                .joinToString("") { it.text }
-                .replace(Regex("\\s+"), " ")
-                .trim()
-        )
-    }
+        val raw = rtlCell(chars, minX, maxX, stripNumeric = true)
+            .replace(Regex("[/×*.,+\\-]+"), " ")
+            .trim()
 
-    /**
-     * 22,275 = 22.275
-     * 0,802  = 0.802
-     * بينما القيم ذات النقطة تبقى عشرية طبيعية.
-     */
-    private fun parseQuantity(raw: String): Double? {
-        val s = NumberParser.normalize(raw).replace(" ", "").trim()
-        if (s.isBlank()) return null
+        val exact = raw.split(Regex("\\s+"))
+            .firstOrNull { it in UNITS }
+        if (exact != null) return exact
 
-        if (s.matches(Regex("\\d+,\\d{1,3}"))) {
-            return s.replace(',', '.').toDoubleOrNull()
-        }
-
-        return NumberParser.parse(s).value
+        return UNITS.firstOrNull { unit ->
+            raw.contains(unit, ignoreCase = true)
+        } ?: ""
     }
 
     private fun isDateOrFooter(text: String): Boolean =
@@ -234,7 +307,6 @@ object PdfSmartImporter {
                 startPage = 1
                 endPage = minOf(document.numberOfPages, 300)
             }
-
             stripper.getText(document)
 
             val rows = groupVisualRows(stripper.chars)
@@ -242,48 +314,31 @@ object PdfSmartImporter {
                 throw IllegalStateException("لم يتم استخراج أي نص قابل للقراءة من PDF.")
             }
 
+            val pageWidth = document.getPage(0).mediaBox.width
+            val centers = detectCenters(rows, kind, pageWidth)
+            val b = boundaries(centers)
+
             var rowNumber = 0
 
             for (row in rows) {
-                val rowText = clean(
-                    row.chars.sortedBy { it.x }.joinToString(" ") { it.text }
-                )
-
-                if (rowText.isBlank()) continue
-                if (shopName != null && shopName.isNotBlank() && rowText.contains(shopName)) continue
-                if (TOTAL_HEADER.containsMatchIn(rowText)) continue
+                val text = rowText(row)
+                if (text.isBlank()) continue
+                if (shopName != null && shopName.isNotBlank() && text.contains(shopName)) continue
+                if (TOTAL_HEADER.containsMatchIn(text)) continue
 
                 when (kind) {
                     ImportKind.CUSTOMER -> {
-                        if (CUSTOMER_HEADER.containsMatchIn(rowText)) continue
-
-                        val parsed = parseCustomerRow(row) ?: continue
+                        if (CUSTOMER_HEADER.containsMatchIn(text)) continue
+                        val parsed = parseCustomerRow(row, b) ?: continue
                         rowNumber++
-
-                        addCustomer(
-                            parsed = parsed,
-                            session = session,
-                            rowNumber = rowNumber,
-                            page = row.page,
-                            y = row.y,
-                            out = out
-                        )
+                        addCustomer(parsed, session, rowNumber, row.page, row.y, out)
                     }
 
                     ImportKind.PRODUCT -> {
-                        if (STOCK_HEADER.containsMatchIn(rowText)) continue
-
-                        val parsed = parseStockRow(row) ?: continue
+                        if (STOCK_HEADER.containsMatchIn(text)) continue
+                        val parsed = parseStockRow(row, b) ?: continue
                         rowNumber++
-
-                        addProduct(
-                            parsed = parsed,
-                            session = session,
-                            rowNumber = rowNumber,
-                            page = row.page,
-                            y = row.y,
-                            out = out
-                        )
+                        addProduct(parsed, session, rowNumber, row.page, row.y, out)
                     }
                 }
             }
@@ -293,10 +348,10 @@ object PdfSmartImporter {
             throw IllegalStateException(
                 when (kind) {
                     ImportKind.CUSTOMER ->
-                        "تم فتح PDF، لكن لم يتم العثور على صفوف عملاء. تم فحص خلايا الاسم والمدين والدائن والعملة بالإحداثيات."
+                        "تم فتح PDF، لكن لم يتم العثور على صفوف عملاء قابلة للاستيراد."
 
                     ImportKind.PRODUCT ->
-                        "تم فتح PDF، لكن لم يتم العثور على صفوف مخزون. تم فحص خلايا المخزن والصنف والوحدة والكمية بالإحداثيات."
+                        "تم فتح PDF، لكن لم يتم العثور على صفوف أصناف ومخزون قابلة للاستيراد."
                 }
             )
         }
@@ -311,26 +366,20 @@ object PdfSmartImporter {
         val currency: String
     )
 
-    /**
-     * الإحداثيات الفعلية في تقرير العملاء:
-     * العملة 0..105، الدائن 105..195، المدين 195..305، الاسم 305..MAX.
-     */
-    private fun parseCustomerRow(row: VisualRow): CustomerParsed? {
-        val chars = row.chars
-
-        val currency = rtlText(chars, 0f, 105f)
+    private fun parseCustomerRow(
+        row: VisualRow,
+        b: FloatArray
+    ): CustomerParsed? {
+        val currency = rtlCell(row.chars, 0f, b[1], stripNumeric = true)
         if (!currency.contains("ريال", ignoreCase = true)) return null
 
-        val creditRaw = numericText(chars, 105f, 195f)
-        val debitRaw = numericText(chars, 195f, 305f)
+        val creditRaw = numericCell(row.chars, b[0], b[1])
+        val debitRaw = numericCell(row.chars, b[1], b[2])
 
-        if (creditRaw.isBlank() || debitRaw.isBlank()) return null
-        if (!isNumericToken(creditRaw) || !isNumericToken(debitRaw)) return null
+        val credit = if (creditRaw.isBlank()) 0.0 else parseNumber(creditRaw) ?: return null
+        val debit = if (debitRaw.isBlank()) 0.0 else parseNumber(debitRaw) ?: return null
 
-        val credit = NumberParser.parse(creditRaw).value ?: return null
-        val debit = NumberParser.parse(debitRaw).value ?: return null
-
-        val name = textWithoutNumericChars(chars, 305f, Float.MAX_VALUE)
+        val name = rtlCell(row.chars, b[2], Float.MAX_VALUE, stripNumeric = true)
         if (name.isBlank()) return null
         if (CUSTOMER_HEADER.containsMatchIn(name)) return null
         if (TOTAL_HEADER.containsMatchIn(name)) return null
@@ -353,6 +402,11 @@ object PdfSmartImporter {
         out: ImportEngine.AnalyzeResult
     ) {
         val t = ArabicNormalizer.process(parsed.name)
+        val confidence = when {
+            parsed.name.length < 2 -> 70
+            parsed.debit == 0.0 && parsed.credit == 0.0 -> 75
+            else -> 99
+        }
 
         out.rows += ImportRawRow(
             sessionId = session,
@@ -365,10 +419,10 @@ object PdfSmartImporter {
             debit = parsed.debit,
             currency = parsed.currency,
             net = parsed.debit - parsed.credit,
-            status = "VALID",
-            confidenceScore = 99,
+            status = if (confidence >= 90) "VALID" else "WARNING",
+            confidenceScore = confidence,
             sourceCoordinates = "pdf:p" + page + ":y" + y,
-            issues = null,
+            issues = if (confidence < 90) "رصيد غير ظاهر في الأعمدة الرقمية" else null,
             approved = 1
         )
 
@@ -383,38 +437,33 @@ object PdfSmartImporter {
         val quantity: Double
     )
 
-    /**
-     * الإحداثيات الفعلية في تقرير المخزون:
-     * الكمية 0..150، الوحدة 150..195، الصنف 195..450، المخزن 450..MAX.
-     */
-    private fun parseStockRow(row: VisualRow): StockParsed? {
-        val chars = row.chars
-
-        val quantityRaw = numericText(chars, 0f, 150f)
+    private fun parseStockRow(
+        row: VisualRow,
+        b: FloatArray
+    ): StockParsed? {
+        val quantityRaw = numericCell(row.chars, 0f, b[1])
         if (quantityRaw.isBlank()) return null
-        if (!isNumericToken(quantityRaw)) return null
 
-        val quantity = parseQuantity(quantityRaw) ?: return null
+        val quantityLeft = numericCell(row.chars, 0f, b[0])
+        val quantity = parseQuantity(
+            if (quantityLeft.isNotBlank()) quantityLeft else quantityRaw
+        ) ?: return null
 
-        val unit = rtlText(chars, 150f, 195f)
-        if (unit.isBlank()) return null
+        val unit = extractUnit(row.chars, 0f, b[1]).ifBlank { "-" }
 
-        val normalizedUnit = clean(unit)
-        if (normalizedUnit !in UNITS) return null
-
-        val name = rtlText(chars, 195f, 450f)
+        val name = rtlCell(row.chars, b[1], b[2], stripNumeric = false)
         if (name.isBlank()) return null
         if (STOCK_HEADER.containsMatchIn(name)) return null
         if (TOTAL_HEADER.containsMatchIn(name)) return null
         if (isDateOrFooter(name)) return null
 
-        val warehouse = rtlText(chars, 450f, Float.MAX_VALUE)
+        val warehouse = rtlCell(row.chars, b[2], Float.MAX_VALUE, stripNumeric = true)
         if (warehouse.isBlank()) return null
 
         return StockParsed(
-            warehouse = warehouse,
+            warehouse = clean(warehouse),
             name = clean(name),
-            unit = normalizedUnit,
+            unit = unit,
             quantity = abs(quantity)
         )
     }
@@ -428,17 +477,11 @@ object PdfSmartImporter {
         out: ImportEngine.AnalyzeResult
     ) {
         val t = ArabicNormalizer.process(parsed.name)
-
-        out.products += Product(
-            nameRaw = t.raw,
-            unit = parsed.unit
-        ) to parsed.quantity
-
+        out.products += Product(nameRaw = t.raw, unit = parsed.unit) to parsed.quantity
         out.totalDebit += parsed.quantity
     }
 }
 
-/** حذف بيانات جلسة سابقة + تنظيف البيانات غير المرتبطة */
 suspend fun deleteSessionData(repo: MainRepo, sid: Long) {
     repo.db.customerDao().deleteBySession(sid)
     runCatching { repo.db.customerDao().deleteUnlinked() }
