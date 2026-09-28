@@ -93,7 +93,7 @@ object PdfSmartImporter {
             text
                 .replace('\u00A0', ' ')
                 .replace('\r', ' ')
-                .replace('\u0640', ''),
+                .replace("\u0640", ""),
             Normalizer.Form.NFKC
         )
             .replace(Regex("\\s+"), " ")
