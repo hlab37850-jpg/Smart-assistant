@@ -78,17 +78,36 @@ object PdfSmartImporter {
 
     private val DATE = Regex("^\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}$")
 
+    // الوحدات الموجودة فعلياً في تقرير المخزون المرفوع، مع قبول "-" إذا كان
+    // التقرير يترك خانة الوحدة بشرطة بدلاً من حذف الصف.
     private val UNITS = setOf(
         "حبة", "حبه", "باكت", "كيس", "علبة", "علب",
         "لفة", "لفه", "ل", "ك", "كيلو", "كجم", "جرام",
-        "متر", "م", "قطعة", "قطعه", "صندوق", "كرتون"
+        "متر", "م", "قطعة", "قطعه", "صندوق", "كرتون",
+        "جالون", "برميل", "طقم", "زوج", "شدة", "درزن",
+        "قطمة", "دبة", "-"
     )
 
     private fun clean(text: String): String =
         Normalizer.normalize(
-            text.replace('\u00A0', ' ').replace('\r', ' '),
+            text
+                .replace('\u00A0', ' ')
+                .replace('\r', ' ')
+                .replace('\u0640', ''),
             Normalizer.Form.NFKC
-        ).replace(Regex("\\s+"), " ").trim()
+        )
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+    /**
+     * PDFBox يعيد بعض علامات الترقيم RTL بترتيب بصري معكوس:
+     * درويش)البنشر( بدلاً من درويش(البنشر).
+     */
+    private fun normalizeRtlPunctuation(text: String): String =
+        text
+            .replace('(', '\uE000')
+            .replace(')', '(')
+            .replace('\uE000', ')')
 
     private fun isDate(text: String): Boolean =
         DATE.matches(clean(text))
@@ -134,12 +153,14 @@ object PdfSmartImporter {
         minX: Float,
         maxX: Float
     ): String {
-        return chars
-            .filter { it.x >= minX && it.x < maxX }
-            .sortedByDescending { it.x }
-            .joinToString("") { it.text }
-            .replace(Regex("\\s+"), " ")
-            .trim()
+        return normalizeRtlPunctuation(
+            chars
+                .filter { it.x >= minX && it.x < maxX }
+                .sortedByDescending { it.x }
+                .joinToString("") { it.text }
+                .replace(Regex("\\s+"), " ")
+                .trim()
+        )
     }
 
     private fun numericText(
@@ -163,16 +184,18 @@ object PdfSmartImporter {
         minX: Float,
         maxX: Float
     ): String {
-        return chars
-            .filter {
-                it.x >= minX &&
-                    it.x < maxX &&
-                    !isNumericChar(it.text)
-            }
-            .sortedByDescending { it.x }
-            .joinToString("") { it.text }
-            .replace(Regex("\\s+"), " ")
-            .trim()
+        return normalizeRtlPunctuation(
+            chars
+                .filter {
+                    it.x >= minX &&
+                        it.x < maxX &&
+                        !isNumericChar(it.text)
+                }
+                .sortedByDescending { it.x }
+                .joinToString("") { it.text }
+                .replace(Regex("\\s+"), " ")
+                .trim()
+        )
     }
 
     /**
