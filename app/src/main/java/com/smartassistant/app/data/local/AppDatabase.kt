@@ -47,8 +47,11 @@ abstract class AppDatabase : RoomDatabase() {
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {
                         super.onOpen(db)
-                        db.execSQL("PRAGMA busy_timeout=15000")
-                        db.execSQL("PRAGMA foreign_keys=ON")
+                        // PRAGMA assignments return a SQLite result set on Android.
+                        // SupportSQLiteDatabase.execSQL() rejects query statements with:
+                        // "Queries can be performed using ... query or rawQuery methods only."
+                        db.query("PRAGMA busy_timeout=15000").use { }
+                        db.query("PRAGMA foreign_keys=ON").use { }
                     }
                 })
                 .fallbackToDestructiveMigration()
