@@ -1,6 +1,7 @@
 package com.smartassistant.app.importer
 
 import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteDatabaseLockedException
 import androidx.room.withTransaction
 import com.smartassistant.app.data.local.entity.Customer
 import com.smartassistant.app.data.local.entity.ImportError
@@ -23,6 +24,22 @@ import java.security.MessageDigest
  * Pipeline الكامل (WordBox + Layout Analyzer) سيأتي في الدفعة 2.
  */
 object ImportEngine {
+    private val importWriteMutex = kotlinx.coroutines.sync.Mutex()
+
+    suspend fun <T> withImportWriteLock(block: suspend () -> T): T =
+        importWriteMutex.withLock {
+            var last: SQLiteDatabaseLockedException? = null
+            repeat(6) { attempt ->
+                try {
+                    return@withLock block()
+                } catch (e: SQLiteDatabaseLockedException) {
+                    last = e
+                    if (attempt < 5) kotlinx.coroutines.delay(300L * (attempt + 1))
+                }
+            }
+            throw last ?: IllegalStateException("SQLite write failed")
+        }
+
 
     private val SKIP = Regex("اجمالي|المجموع|total|صفحة|page|تاريخ الطباعة|عنوان المحل|هاتف المحل", RegexOption.IGNORE_CASE)
     private val CREDIT_WORD = Regex("(?:^|\\s)(له|دائن)(?:\\s|$)")
@@ -250,7 +267,10 @@ object ImportEngine {
     ) {
         repo.createBackup(true)
 
-        repo.db.withTransaction {
+        var last: SQLiteDatabaseLockedException? = null
+        repeat(6) { attempt ->
+            try {
+                repo.db.withTransaction {
             if (kind == ImportKind.PRODUCT) {
                 val existingProducts = repo.db.productDao().allSync()
                     .associateBy { ArabicNormalizer.process(it.nameRaw).normalized }
@@ -338,7 +358,13 @@ object ImportEngine {
                     )
                 )
             }
+                return
+            } catch (e: SQLiteDatabaseLockedException) {
+                last = e
+                if (attempt < 5) kotlinx.coroutines.delay(300L * (attempt + 1))
+            }
         }
+        throw last ?: IllegalStateException("SQLite import transaction failed")
     }
 
     data class AnalyzeResult(
