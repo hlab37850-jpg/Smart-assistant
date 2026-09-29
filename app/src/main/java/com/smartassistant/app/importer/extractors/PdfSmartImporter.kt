@@ -31,6 +31,7 @@ object PdfSmartImporter {
         val page: Int,
         val x: Float,
         val y: Float,
+        val width: Float,
         val text: String
     )
 
@@ -64,6 +65,7 @@ object PdfSmartImporter {
                 page = currentPageNo,
                 x = text.xDirAdj,
                 y = text.yDirAdj,
+                width = text.widthDirAdj.coerceAtLeast(0f),
                 text = unicode
             )
         }
@@ -236,9 +238,29 @@ object PdfSmartImporter {
             .filter { it.x >= minX && it.x < maxX }
             .sortedByDescending { it.x }
 
-        val raw = ordered
+        val filtered = ordered
             .filterNot { stripNumeric && isNumericLikeChar(it.text) }
-            .joinToString("") { it.text }
+
+        if (filtered.isEmpty()) return ""
+
+        // PDF text layers often expose every Arabic glyph as a separate
+        // TextPosition and omit the original whitespace. Reconstruct word
+        // boundaries from the visual horizontal gap instead of concatenating
+        // every glyph. This fixes names such as:
+        // "أحمدعايشقطعغيار" -> "أحمد عايش قطع غيار"
+        val raw = buildString {
+            filtered.forEachIndexed { index, ch ->
+                if (index > 0) {
+                    val previous = filtered[index - 1]
+                    val gap = previous.x - (ch.x + ch.width)
+                    val threshold = maxOf(1.5f, minOf(previous.width, ch.width) * 0.45f)
+                    if (gap > threshold && lastOrNull()?.isWhitespace() != true) {
+                        append(' ')
+                    }
+                }
+                append(ch.text)
+            }
+        }
 
         return normalizeRtlPunctuation(clean(raw))
     }
