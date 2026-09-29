@@ -3,7 +3,7 @@ name: Build APK & AAB
 on:
   workflow_dispatch:
   push:
-    branches: [ main, final-smart-assistant, fix/pdf-only-import, fix/pdf-table-engine-v2, feat/auto-pdf-import-ocr ]
+    branches: [ main, final-smart-assistant, fix/pdf-only-import, fix/pdf-table-engine-v2, feat/auto-pdf-import-ocr, fix/sqlite-busy-auto-import ]
     tags: [ 'v*' ]
 
 jobs:

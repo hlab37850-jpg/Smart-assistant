@@ -173,25 +173,27 @@ fun ImportScreen(nav: NavController) {
 
             try {
                 withContext(Dispatchers.IO) {
-                    repo.db.importDao().insertRows(rowsToSave)
-                    repo.db.importDao().updateSession(
-                        ImportSession(
-                            id = sid,
-                            fileName = name,
-                            fileHash = hash,
-                            fileType = "pdf",
-                            kind = kind.name,
-                            totalFound = rowsToSave.size,
-                            validCount = rowsToSave.size,
-                            reviewCount = 0,
-                            ignoredCount = result.ignored,
-                            totalCredit = result.totalCredit,
-                            totalDebit = result.totalDebit,
-                            net = result.totalDebit - result.totalCredit,
-                            status = SessionStatus.READY_TO_IMPORT.name
+                    ImportEngine.withImportWriteLock {
+                        repo.db.importDao().insertRows(rowsToSave)
+                        repo.db.importDao().updateSession(
+                            ImportSession(
+                                id = sid,
+                                fileName = name,
+                                fileHash = hash,
+                                fileType = "pdf",
+                                kind = kind.name,
+                                totalFound = rowsToSave.size,
+                                validCount = rowsToSave.size,
+                                reviewCount = 0,
+                                ignoredCount = result.ignored,
+                                totalCredit = result.totalCredit,
+                                totalDebit = result.totalDebit,
+                                net = result.totalDebit - result.totalCredit,
+                                status = SessionStatus.READY_TO_IMPORT.name
+                            )
                         )
-                    )
-                    ImportEngine.apply(repo, sid, kind, rowsToSave)
+                        ImportEngine.apply(repo, sid, kind, rowsToSave)
+                    }
                 }
 
                 progress = "تم الاستيراد تلقائياً: ${rowsToSave.size} سجل"

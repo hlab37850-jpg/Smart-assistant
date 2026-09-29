@@ -1,6 +1,7 @@
 package com.smartassistant.app.importer
 
 import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteDatabaseLockedException
 import androidx.room.withTransaction
 import com.smartassistant.app.data.local.entity.Customer
 import com.smartassistant.app.data.local.entity.ImportError
@@ -16,6 +17,7 @@ import com.smartassistant.app.util.Csv
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
+import kotlinx.coroutines.sync.withLock
 import java.security.MessageDigest
 
 /**
@@ -23,6 +25,22 @@ import java.security.MessageDigest
  * Pipeline الكامل (WordBox + Layout Analyzer) سيأتي في الدفعة 2.
  */
 object ImportEngine {
+    private val importWriteMutex = kotlinx.coroutines.sync.Mutex()
+
+    suspend fun <T> withImportWriteLock(block: suspend () -> T): T =
+        importWriteMutex.withLock {
+            var last: SQLiteDatabaseLockedException? = null
+            repeat(6) { attempt ->
+                try {
+                    return@withLock block()
+                } catch (e: SQLiteDatabaseLockedException) {
+                    last = e
+                    if (attempt < 5) kotlinx.coroutines.delay(300L * (attempt + 1))
+                }
+            }
+            throw last ?: IllegalStateException("SQLite write failed")
+        }
+
 
     private val SKIP = Regex("اجمالي|المجموع|total|صفحة|page|تاريخ الطباعة|عنوان المحل|هاتف المحل", RegexOption.IGNORE_CASE)
     private val CREDIT_WORD = Regex("(?:^|\\s)(له|دائن)(?:\\s|$)")
@@ -250,95 +268,102 @@ object ImportEngine {
     ) {
         repo.createBackup(true)
 
-        repo.db.withTransaction {
-            if (kind == ImportKind.PRODUCT) {
-                val existingProducts = repo.db.productDao().allSync()
-                    .associateBy { ArabicNormalizer.process(it.nameRaw).normalized }
+        var last: SQLiteDatabaseLockedException? = null
+        repeat(6) { attempt ->
+            try {
+                repo.db.withTransaction {
+                    if (kind == ImportKind.PRODUCT) {
+                        val existingProducts = repo.db.productDao().allSync()
+                            .associateBy { ArabicNormalizer.process(it.nameRaw).normalized }
 
-                for (row in rows) {
-                    val normalized = ArabicNormalizer.process(row.nameRaw).normalized
-                    val existing = existingProducts[normalized]
-                    if (existing != null) {
-                        val inventory = repo.db.inventoryDao().byProduct(existing.id)
-                        repo.db.inventoryDao().upsert(
-                            com.smartassistant.app.data.local.entity.Inventory(
-                                id = inventory?.id ?: 0L,
-                                productId = existing.id,
-                                qty = row.debit,
-                                minQty = inventory?.minQty ?: 0.0,
-                                expiryDate = inventory?.expiryDate,
-                                updatedAt = System.currentTimeMillis()
-                            )
-                        )
+                        for (row in rows) {
+                            val normalized = ArabicNormalizer.process(row.nameRaw).normalized
+                            val existing = existingProducts[normalized]
+                            if (existing != null) {
+                                val inventory = repo.db.inventoryDao().byProduct(existing.id)
+                                repo.db.inventoryDao().upsert(
+                                    com.smartassistant.app.data.local.entity.Inventory(
+                                        id = inventory?.id ?: 0L,
+                                        productId = existing.id,
+                                        qty = row.debit,
+                                        minQty = inventory?.minQty ?: 0.0,
+                                        expiryDate = inventory?.expiryDate,
+                                        updatedAt = System.currentTimeMillis()
+                                    )
+                                )
+                            } else {
+                                val productId = repo.db.productDao().insert(
+                                    Product(nameRaw = row.nameRaw, unit = row.currency)
+                                )
+                                repo.db.inventoryDao().upsert(
+                                    com.smartassistant.app.data.local.entity.Inventory(
+                                        productId = productId,
+                                        qty = row.debit,
+                                        minQty = 0.0,
+                                        expiryDate = null
+                                    )
+                                )
+                            }
+                        }
                     } else {
-                        val productId = repo.db.productDao().insert(
-                            Product(
-                                nameRaw = row.nameRaw,
-                                unit = row.currency
-                            )
-                        )
-                        repo.db.inventoryDao().upsert(
-                            com.smartassistant.app.data.local.entity.Inventory(
-                                productId = productId,
-                                qty = row.debit,
-                                minQty = 0.0,
-                                expiryDate = null
+                        for (row in rows) {
+                            if (row.nameNormalized.isBlank()) continue
+                            val existing = repo.db.customerDao().byNormalizedName(row.nameNormalized)
+                            val net = row.debit - row.credit
+                            if (existing != null) {
+                                repo.db.customerDao().update(
+                                    existing.copy(
+                                        balance = net,
+                                        debit = row.debit,
+                                        credit = row.credit,
+                                        phone = row.phone ?: existing.phone,
+                                        currency = row.currency ?: existing.currency,
+                                        sourcePage = row.pageNumber,
+                                        importSessionId = session,
+                                        updatedAt = System.currentTimeMillis()
+                                    )
+                                )
+                            } else {
+                                repo.db.customerDao().insert(
+                                    Customer(
+                                        name = row.nameDisplay,
+                                        nameNormalized = row.nameNormalized,
+                                        phone = row.phone,
+                                        balance = net,
+                                        rawBalance = row.nameRaw,
+                                        debit = row.debit,
+                                        credit = row.credit,
+                                        currency = row.currency,
+                                        sourcePage = row.pageNumber,
+                                        importSessionId = session
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    val current = repo.db.importDao().sessionById(session)
+                    if (current != null) {
+                        repo.db.importDao().updateSession(
+                            current.copy(
+                                status = SessionStatus.COMPLETED.name,
+                                finishedAt = System.currentTimeMillis(),
+                                validCount = rows.size,
+                                reviewCount = 0,
+                                totalCredit = rows.sumOf { it.credit },
+                                totalDebit = rows.sumOf { it.debit },
+                                net = rows.sumOf { it.debit - it.credit }
                             )
                         )
                     }
                 }
-            } else {
-                for (row in rows) {
-                    if (row.nameNormalized.isBlank()) continue
-                    val existing = repo.db.customerDao().byNormalizedName(row.nameNormalized)
-                    val net = row.debit - row.credit
-                    if (existing != null) {
-                        repo.db.customerDao().update(
-                            existing.copy(
-                                balance = net,
-                                debit = row.debit,
-                                credit = row.credit,
-                                phone = row.phone ?: existing.phone,
-                                currency = row.currency ?: existing.currency,
-                                sourcePage = row.pageNumber,
-                                importSessionId = session,
-                                updatedAt = System.currentTimeMillis()
-                            )
-                        )
-                    } else {
-                        repo.db.customerDao().insert(
-                            Customer(
-                                name = row.nameDisplay,
-                                nameNormalized = row.nameNormalized,
-                                phone = row.phone,
-                                balance = net,
-                                rawBalance = row.nameRaw,
-                                debit = row.debit,
-                                credit = row.credit,
-                                currency = row.currency,
-                                sourcePage = row.pageNumber,
-                                importSessionId = session
-                            )
-                        )
-                    }
-                }
-            }
-
-            val current = repo.db.importDao().sessionById(session)
-            if (current != null) {
-                repo.db.importDao().updateSession(
-                    current.copy(
-                        status = SessionStatus.COMPLETED.name,
-                        finishedAt = System.currentTimeMillis(),
-                        validCount = rows.size,
-                        reviewCount = 0,
-                        totalCredit = rows.sumOf { it.credit },
-                        totalDebit = rows.sumOf { it.debit },
-                        net = rows.sumOf { it.debit - it.credit }
-                    )
-                )
+                return
+            } catch (e: SQLiteDatabaseLockedException) {
+                last = e
+                if (attempt < 5) kotlinx.coroutines.delay(300L * (attempt + 1))
             }
         }
+        throw last ?: IllegalStateException("SQLite import transaction failed")
     }
 
     data class AnalyzeResult(
