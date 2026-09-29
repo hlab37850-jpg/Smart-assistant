@@ -112,7 +112,7 @@ object PdfOcrFallback {
                                     val parsed = parseCustomer(row, boundaries, bitmap.width)
                                     if (parsed != null) {
                                         rowNumber++
-                                        addCustomer(parsed, session, rowNumber, out)
+                                        addCustomer(parsed, session, rowNumber, row.page, out)
                                     }
                                 }
 
@@ -120,7 +120,7 @@ object PdfOcrFallback {
                                     val parsed = parseProduct(row, boundaries, bitmap.width)
                                     if (parsed != null) {
                                         rowNumber++
-                                        addProduct(parsed, session, rowNumber, out)
+                                        addProduct(parsed, session, rowNumber, row.page, out)
                                     }
                                 }
                             }
@@ -405,12 +405,13 @@ object PdfOcrFallback {
         parsed: CustomerParsed,
         session: Long,
         rowNumber: Int,
+        page: Int,
         out: ImportEngine.AnalyzeResult
     ) {
         val t = ArabicNormalizer.process(parsed.name)
         out.rows += ImportRawRow(
             sessionId = session,
-            pageNumber = 0,
+            pageNumber = page,
             rowNumber = rowNumber,
             nameRaw = t.raw,
             nameDisplay = t.display,
@@ -433,13 +434,14 @@ object PdfOcrFallback {
         parsed: ProductParsed,
         session: Long,
         rowNumber: Int,
+        page: Int,
         out: ImportEngine.AnalyzeResult
     ) {
         val t = ArabicNormalizer.process(parsed.name)
         out.products += Product(nameRaw = t.raw, unit = parsed.unit) to parsed.quantity
         out.rows += ImportRawRow(
             sessionId = session,
-            pageNumber = 0,
+            pageNumber = page,
             rowNumber = rowNumber,
             nameRaw = t.raw,
             nameDisplay = t.display,
