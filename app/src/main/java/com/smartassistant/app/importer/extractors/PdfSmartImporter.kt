@@ -1,5 +1,7 @@
 package com.smartassistant.app.importer.extractors
 
+import android.content.Context
+
 import com.smartassistant.app.data.local.entity.ImportRawRow
 import com.smartassistant.app.data.local.entity.Product
 import com.smartassistant.app.data.repo.MainRepo
@@ -291,6 +293,20 @@ object PdfSmartImporter {
         isDate(text) || text.contains("2026-08-31")
 
     fun parse(
+        context: Context,
+        file: File,
+        shopName: String?,
+        kind: ImportKind,
+        session: Long
+    ): ImportEngine.AnalyzeResult {
+        return runCatching {
+            parseTextLayer(file, shopName, kind, session)
+        }.getOrElse {
+            PdfOcrFallback.parse(context, file, kind, session)
+        }
+    }
+
+    private fun parseTextLayer(
         file: File,
         shopName: String?,
         kind: ImportKind,
