@@ -43,6 +43,14 @@ abstract class AppDatabase : RoomDatabase() {
         fun get(c: Context) = i ?: synchronized(this) {
             i ?: Room.databaseBuilder(c, AppDatabase::class.java, "smart_assistant.db")
                 .addMigrations(MIGRATION_3_4)
+                .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
+                .addCallback(object : RoomDatabase.Callback() {
+                    override fun onOpen(db: SupportSQLiteDatabase) {
+                        super.onOpen(db)
+                        db.execSQL("PRAGMA busy_timeout=15000")
+                        db.execSQL("PRAGMA foreign_keys=ON")
+                    }
+                })
                 .fallbackToDestructiveMigration()
                 .build()
                 .also { i = it }
