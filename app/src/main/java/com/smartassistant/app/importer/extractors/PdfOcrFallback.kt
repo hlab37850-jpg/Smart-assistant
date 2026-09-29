@@ -324,7 +324,7 @@ object PdfOcrFallback {
             ?: return null
 
         val unit = textIn(row, 0f, b[1])
-            .replace(Regex("[0-9.,+\-/×*]+"), " ")
+            .replace(Regex("[0-9.,+/×*-]+"), " ")
             .trim()
             .ifBlank { "-" }
 
@@ -375,7 +375,7 @@ object PdfOcrFallback {
         return row.words
             .filter { it.x >= minX && it.x < maxX }
             .sortedByDescending { it.x }
-            .filterNot { stripNumeric && normalizeDigits(it.text).all { c -> c.isDigit() || c in ".,-/+" } }
+            .filterNot { stripNumeric && isNumericToken(it.text) }
             .joinToString(" ") { it.text }
             .let(::clean)
     }
@@ -385,6 +385,12 @@ object PdfOcrFallback {
             .sortedByDescending { it.x }
             .joinToString(" ") { it.text }
             .let(::clean)
+
+    private fun isNumericToken(text: String): Boolean {
+        val normalized = normalizeDigits(text)
+        return normalized.isNotBlank() &&
+            normalized.all { it.isDigit() || it in ".,-/+" }
+    }
 
     private fun isHeaderOrFooter(text: String, kind: ImportKind): Boolean {
         val t = clean(text)
