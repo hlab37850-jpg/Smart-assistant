@@ -1,3 +1,32 @@
+
+val generatedTessAssets = layout.buildDirectory.dir("generated/tessAssets")
+
+val prepareTessdata by tasks.registering {
+    outputs.dir(generatedTessAssets)
+    doLast {
+        val tessDir = generatedTessAssets.get().asFile.resolve("tessdata")
+        tessDir.mkdirs()
+        val models = mapOf(
+            "ara.traineddata" to "https://github.com/tesseract-ocr/tessdata_best/raw/main/ara.traineddata"
+        )
+        models.forEach { (name, url) ->
+            val target = tessDir.resolve(name)
+            if (!target.exists() || target.length() < 1_000_000L) {
+                val connection = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 30_000
+                connection.readTimeout = 120_000
+                connection.setRequestProperty("User-Agent", "SmartAssistant-CloudBuild")
+                connection.connect()
+                connection.inputStream.use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+                connection.disconnect()
+            }
+            check(target.length() > 1_000_000L) { "Invalid Tesseract model: $target" }
+        }
+    }
+}
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -41,6 +70,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true; buildConfig = true }
+    sourceSets["main"].assets.srcDir(generatedTessAssets)
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1,NOTICE.md,LICENSE.md}" }
 }
 configurations.all { exclude(group = "org.bouncycastle", module = "bcprov-jdk15to18") }
@@ -70,7 +100,11 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
     implementation("com.google.mlkit:text-recognition:16.0.0")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }
+
+
+tasks.named("preBuild").configure { dependsOn(prepareTessdata) }
