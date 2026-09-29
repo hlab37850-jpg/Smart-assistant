@@ -396,7 +396,7 @@ object PdfOcrFallback {
         val t = clean(text)
         if (t.isBlank()) return true
         if (t.contains(Regex("إجمالي|الإجمالي|الاجمالي|المجموع|total"), ignoreCase = true)) return true
-        if (t.contains(Regex("\bpage\b|صفحة|تاريخ الطباعة"), ignoreCase = true)) return true
+        if (t.contains(Regex("\\bpage\\b|صفحة|تاريخ الطباعة"), ignoreCase = true)) return true
         return when (kind) {
             ImportKind.CUSTOMER ->
                 t.contains("الإسم") || t.contains("الاسم") || t.contains("مدين") ||
