@@ -17,6 +17,7 @@ import com.smartassistant.app.util.Csv
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
+import kotlinx.coroutines.sync.withLock
 import java.security.MessageDigest
 
 /**
