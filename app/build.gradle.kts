@@ -1,3 +1,6 @@
+import java.net.HttpURLConnection
+import java.net.URI
+
 
 val generatedTessAssets = layout.buildDirectory.dir("generated/tessAssets")
 
@@ -12,7 +15,7 @@ val prepareTessdata by tasks.registering {
         models.forEach { (name, url) ->
             val target = tessDir.resolve(name)
             if (!target.exists() || target.length() < 1_000_000L) {
-                val connection = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
+                val connection = URI(url).toURL().openConnection() as HttpURLConnection
                 connection.connectTimeout = 30_000
                 connection.readTimeout = 120_000
                 connection.setRequestProperty("User-Agent", "SmartAssistant-CloudBuild")
