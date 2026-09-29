@@ -288,7 +288,7 @@ object PdfOcrFallback {
         pageWidth: Int
     ): CustomerParsed? {
         val currency = rtlCell(row, 0f, b[1])
-        if (!currency.contains(Regex("ريال|يمن|يمني"), ignoreCase = true)) return null
+        if (!Regex("ريال|يمن|يمني", RegexOption.IGNORE_CASE).containsMatchIn(currency)) return null
 
         val credit = numberIn(row, b[0], b[1]) ?: 0.0
         val debit = numberIn(row, b[1], b[2]) ?: 0.0
@@ -395,8 +395,8 @@ object PdfOcrFallback {
     private fun isHeaderOrFooter(text: String, kind: ImportKind): Boolean {
         val t = clean(text)
         if (t.isBlank()) return true
-        if (t.contains(Regex("إجمالي|الإجمالي|الاجمالي|المجموع|total"), ignoreCase = true)) return true
-        if (t.contains(Regex("\\bpage\\b|صفحة|تاريخ الطباعة"), ignoreCase = true)) return true
+        if (Regex("إجمالي|الإجمالي|الاجمالي|المجموع|total", RegexOption.IGNORE_CASE).containsMatchIn(t)) return true
+        if (Regex("\\bpage\\b|صفحة|تاريخ الطباعة", RegexOption.IGNORE_CASE).containsMatchIn(t)) return true
         return when (kind) {
             ImportKind.CUSTOMER ->
                 t.contains("الإسم") || t.contains("الاسم") || t.contains("مدين") ||
