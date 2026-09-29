@@ -23,6 +23,7 @@ import com.smartassistant.app.importer.extractors.PdfSmartImporter
 import com.smartassistant.app.importer.extractors.deleteSessionData
 import com.smartassistant.app.importer.models.ImportKind
 import com.smartassistant.app.importer.models.SessionStatus
+import com.smartassistant.app.ui.navigation.Routes
 import com.smartassistant.app.ui.theme.AppColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -105,11 +106,12 @@ fun ImportScreen(nav: NavController) {
                 )
             )
 
-            progress = "جاري تحليل PDF واستخراج البيانات..."
+            progress = "جاري تحليل PDF بالنص الأصلي ثم OCR العربي عند الحاجة..."
 
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     PdfSmartImporter.parse(
+                        context = ctx,
                         file = f,
                         shopName = null,
                         kind = kind,
@@ -168,26 +170,43 @@ fun ImportScreen(nav: NavController) {
                 return@launch
             }
 
-            repo.db.importDao().insertRows(rowsToSave)
-            repo.db.importDao().updateSession(
-                ImportSession(
-                    id = sid,
-                    fileName = name,
-                    fileHash = hash,
-                    fileType = "pdf",
-                    kind = kind.name,
-                    totalFound = rowsToSave.size,
-                    validCount = rowsToSave.size,
-                    reviewCount = 0,
-                    ignoredCount = result.ignored,
-                    totalCredit = result.totalCredit,
-                    totalDebit = result.totalDebit,
-                    net = result.totalDebit - result.totalCredit,
-                    status = SessionStatus.READY_TO_IMPORT.name
-                )
-            )
+            try {
+                withContext(Dispatchers.IO) {
+                    repo.db.importDao().insertRows(rowsToSave)
+                    repo.db.importDao().updateSession(
+                        ImportSession(
+                            id = sid,
+                            fileName = name,
+                            fileHash = hash,
+                            fileType = "pdf",
+                            kind = kind.name,
+                            totalFound = rowsToSave.size,
+                            validCount = rowsToSave.size,
+                            reviewCount = 0,
+                            ignoredCount = result.ignored,
+                            totalCredit = result.totalCredit,
+                            totalDebit = result.totalDebit,
+                            net = result.totalDebit - result.totalCredit,
+                            status = SessionStatus.READY_TO_IMPORT.name
+                        )
+                    )
+                    ImportEngine.apply(repo, sid, kind, rowsToSave)
+                }
 
-            nav.navigate("review/$sid")
+                progress = "تم الاستيراد تلقائياً: ${rowsToSave.size} سجل"
+                nav.navigate(Routes.HOME) {
+                    popUpTo(Routes.IMPORT) { inclusive = true }
+                }
+            } catch (t: Throwable) {
+                error = t.message ?: "فشل اعتماد البيانات المستخرجة."
+                withContext(Dispatchers.IO) {
+                    repo.db.importDao().sessionById(sid)?.let {
+                        repo.db.importDao().updateSession(
+                            it.copy(status = SessionStatus.FAILED.name)
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -248,7 +267,7 @@ fun ImportScreen(nav: NavController) {
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Text(
-                                    "اختر ملف PDF ثم حدد: العملاء والأرصدة أو الأصناف والمخزون.",
+                                    "اختر ملف PDF، وسيستخرج المحرك البيانات ويستوردها تلقائياً. يدعم النص الأصلي وOCR العربي للملفات الممسوحة.",
                                     color = Color.White.copy(alpha = 0.85f),
                                     style = MaterialTheme.typography.bodySmall
                                 )
