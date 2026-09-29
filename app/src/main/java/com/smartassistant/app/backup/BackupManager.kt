@@ -19,14 +19,14 @@ object BackupManager {
 
         val ok = runCatching {
             var last: Throwable? = null
-            repeat(4) { attempt ->
+            for (attempt in 0 until 4) {
                 try {
                     db.openHelper.writableDatabase.execSQL("VACUUM INTO '$escaped'")
                     last = null
-                    return@repeat
+                    break
                 } catch (t: Throwable) {
                     last = t
-                    if (attempt < 3) Thread.sleep((250L * (attempt + 1)))
+                    if (attempt < 3) Thread.sleep(250L * (attempt + 1))
                 }
             }
             if (last != null) throw last!!
