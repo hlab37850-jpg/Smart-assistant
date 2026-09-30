@@ -24,3 +24,6 @@
 - الوسوم v* تشغّل البناء أيضاً.
 
 بعد نجاح البناء، ستجد app-release.apk وapp-release.aab في Artifact باسم release-binaries.
+
+
+<!-- CI final APK verification -->
