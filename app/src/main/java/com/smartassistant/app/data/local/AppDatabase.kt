@@ -14,7 +14,7 @@ import com.smartassistant.app.data.local.entity.*
     AppNotification::class, Category::class, Product::class, Inventory::class,
     ImportSession::class, ImportRawRow::class, ImportError::class, ImportProfile::class,
     Backup::class, ActivityLog::class, AIConversation::class, AIMessage::class,
-], version = 4, exportSchema = false)
+], version = 5, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun shopDao(): ShopDao
     abstract fun userDao(): UserDao
@@ -38,11 +38,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE customers ADD COLUMN importRowNumber INTEGER")
+                db.execSQL("ALTER TABLE products ADD COLUMN sourcePage INTEGER")
+                db.execSQL("ALTER TABLE products ADD COLUMN importSessionId INTEGER")
+                db.execSQL("ALTER TABLE products ADD COLUMN importRowNumber INTEGER")
+            }
+        }
+
         @Volatile private var i: AppDatabase? = null
 
         fun get(c: Context) = i ?: synchronized(this) {
             i ?: Room.databaseBuilder(c, AppDatabase::class.java, "smart_assistant.db")
-                .addMigrations(MIGRATION_3_4)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {
