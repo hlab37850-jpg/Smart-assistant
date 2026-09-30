@@ -59,14 +59,14 @@ object PdfSmartImporter {
 
         override fun processTextPosition(text: TextPosition) {
             val unicode = text.unicode ?: return
-            if (unicode.isBlank()) return
+            val glyphText = if (unicode.isBlank()) " " else unicode
 
             chars += PositionedChar(
                 page = currentPageNo,
                 x = text.xDirAdj,
                 y = text.yDirAdj,
                 width = text.widthDirAdj.coerceAtLeast(0f),
-                text = unicode
+                text = glyphText
             )
         }
     }
@@ -243,17 +243,37 @@ object PdfSmartImporter {
 
         if (filtered.isEmpty()) return ""
 
-        // PDF text layers often expose every Arabic glyph as a separate
-        // TextPosition and omit the original whitespace. Reconstruct word
-        // boundaries from the visual horizontal gap instead of concatenating
-        // every glyph. This fixes names such as:
-        // "أحمدعايشقطعغيار" -> "أحمد عايش قطع غيار"
+        // PDF text layers can omit real whitespace and expose each Arabic
+        // glyph as an independent TextPosition. Use both explicit whitespace
+        // glyphs and an adaptive gap threshold derived from this cell's own
+        // typography. A fixed threshold fails across different PDF fonts/scales.
+        val positiveGaps = filtered.zipWithNext()
+            .map { (previous, ch) ->
+                previous.x - (ch.x + ch.width)
+            }
+            .filter { it > 0.05f }
+            .sorted()
+
+        val medianGap = positiveGaps.takeIf { it.isNotEmpty() }?.let {
+            if (it.size % 2 == 1) it[it.size / 2]
+            else (it[it.size / 2 - 1] + it[it.size / 2]) / 2f
+        } ?: 0f
+
+        val maxGap = positiveGaps.lastOrNull() ?: 0f
+        val adaptiveThreshold = maxOf(
+            0.9f,
+            medianGap + maxOf(0.45f, (maxGap - medianGap) * 0.30f)
+        )
+
         val raw = buildString {
             filtered.forEachIndexed { index, ch ->
                 if (index > 0) {
                     val previous = filtered[index - 1]
                     val gap = previous.x - (ch.x + ch.width)
-                    val threshold = maxOf(1.5f, minOf(previous.width, ch.width) * 0.45f)
+                    val threshold = maxOf(
+                        adaptiveThreshold,
+                        minOf(previous.width, ch.width).coerceAtLeast(0.1f) * 0.18f
+                    )
                     if (gap > threshold && lastOrNull()?.isWhitespace() != true) {
                         append(' ')
                     }
