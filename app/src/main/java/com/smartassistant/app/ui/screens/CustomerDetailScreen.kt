@@ -10,7 +10,6 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Schedule
-import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -224,11 +223,7 @@ fun ScheduleDialog(repo: MainRepo, customerId: Long, onDismiss: () -> Unit) {
                     onValueChange = {},
                     readOnly = true,
                     label = { Text("التاريخ") },
-                    trailingIcon = {
-                        IconButton(onClick = { showDatePicker = true }) {
-                            Icon(Icons.Rounded.DateRange, contentDescription = "اختيار التاريخ")
-                        }
-                    },
+                    trailingIcon = { TextButton(onClick = { showDatePicker = true }) { Text("اختيار") } },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )

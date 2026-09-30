@@ -128,11 +128,7 @@ fun AddEditProductScreen(nav: NavController, productId: Long?) {
                 onValueChange = {},
                 readOnly = true,
                 label = { Text("تاريخ الصلاحية (اختياري)") },
-                trailingIcon = {
-                    IconButton(onClick = { showExpiryPicker = true }) {
-                        Icon(Icons.Rounded.DateRange, contentDescription = "اختيار تاريخ الصلاحية")
-                    }
-                },
+                trailingIcon = { TextButton(onClick = { showExpiryPicker = true }) { Text("اختيار") } },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
