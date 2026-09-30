@@ -280,6 +280,13 @@ object ImportEngine {
                             val normalized = ArabicNormalizer.process(row.nameRaw).normalized
                             val existing = existingProducts[normalized]
                             if (existing != null) {
+                                repo.db.productDao().update(
+                                    existing.copy(
+                                        sourcePage = row.pageNumber,
+                                        importSessionId = session,
+                                        importRowNumber = row.rowNumber
+                                    )
+                                )
                                 val inventory = repo.db.inventoryDao().byProduct(existing.id)
                                 repo.db.inventoryDao().upsert(
                                     com.smartassistant.app.data.local.entity.Inventory(
