@@ -293,7 +293,7 @@ object ImportEngine {
                                 )
                             } else {
                                 val productId = repo.db.productDao().insert(
-                                    Product(nameRaw = row.nameRaw, unit = row.currency)
+                                    Product(nameRaw = row.nameRaw, unit = row.currency, sourcePage = row.pageNumber, importSessionId = session, importRowNumber = row.rowNumber)
                                 )
                                 repo.db.inventoryDao().upsert(
                                     com.smartassistant.app.data.local.entity.Inventory(
@@ -320,6 +320,7 @@ object ImportEngine {
                                         currency = row.currency ?: existing.currency,
                                         sourcePage = row.pageNumber,
                                         importSessionId = session,
+                                        importRowNumber = row.rowNumber,
                                         updatedAt = System.currentTimeMillis()
                                     )
                                 )
