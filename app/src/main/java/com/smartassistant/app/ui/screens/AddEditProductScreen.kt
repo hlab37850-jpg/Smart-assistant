@@ -18,6 +18,8 @@ import com.smartassistant.app.data.repo.MainRepo
 import com.smartassistant.app.ui.theme.AppColors
 import com.smartassistant.app.util.DataPreservation
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.ZoneOffset
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +33,7 @@ fun AddEditProductScreen(nav: NavController, productId: Long?) {
     var qty by remember { mutableStateOf("0") }
     var minQty by remember { mutableStateOf("0") }
     var expiry by remember { mutableStateOf("") }
+    var showExpiryPicker by remember { mutableStateOf(false) }
     var categoryId by remember { mutableStateOf(-1L) }
     var categories by remember { mutableStateOf<List<Category>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
@@ -48,6 +51,30 @@ fun AddEditProductScreen(nav: NavController, productId: Long?) {
                 minQty = (inv?.minQty ?: 0.0).toString()
                 expiry = inv?.expiryDate ?: ""
             }
+        }
+    }
+
+    if (showExpiryPicker) {
+        val initialMillis = runCatching {
+            LocalDate.parse(expiry).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
+        }.getOrNull()
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+        DatePickerDialog(
+            onDismissRequest = { showExpiryPicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { millis ->
+                        expiry = java.time.Instant.ofEpochMilli(millis)
+                            .atZone(ZoneOffset.UTC).toLocalDate().toString()
+                    }
+                    showExpiryPicker = false
+                }) { Text("اختيار") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExpiryPicker = false }) { Text("إلغاء") }
+            }
+        ) {
+            DatePicker(state = pickerState, showModeToggle = false)
         }
     }
 
@@ -96,8 +123,19 @@ fun AddEditProductScreen(nav: NavController, productId: Long?) {
                 OutlinedTextField(minQty, { minQty = it }, label = { Text("الحد الأدنى") },
                     modifier = Modifier.weight(1f), singleLine = true)
             }
-            OutlinedTextField(expiry, { expiry = it }, label = { Text("تاريخ الصلاحية (اختياري YYYY-MM-DD)") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true)
+            OutlinedTextField(
+                value = expiry,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("تاريخ الصلاحية (اختياري)") },
+                trailingIcon = {
+                    IconButton(onClick = { showExpiryPicker = true }) {
+                        Icon(Icons.Rounded.DateRange, contentDescription = "اختيار تاريخ الصلاحية")
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
 
             Button(onClick = {
                 scope.launch {

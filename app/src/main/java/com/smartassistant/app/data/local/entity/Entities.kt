@@ -41,6 +41,7 @@ data class Customer(
     val credit: Double = 0.0,
     val sourcePage: Int? = null,
     val importSessionId: Long? = null,
+    val importRowNumber: Int? = null,
     val archived: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
@@ -96,6 +97,9 @@ data class Product(
     val code: String? = null,
     val categoryId: Long? = null,
     val unit: String? = null,
+    val sourcePage: Int? = null,
+    val importSessionId: Long? = null,
+    val importRowNumber: Int? = null,
     val archived: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
 )
