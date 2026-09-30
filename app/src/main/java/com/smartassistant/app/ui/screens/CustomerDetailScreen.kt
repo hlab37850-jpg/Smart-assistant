@@ -10,6 +10,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,6 +31,8 @@ import com.smartassistant.app.util.Fmt
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
+import java.time.LocalDate
+import java.time.ZoneOffset
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -179,19 +182,55 @@ private fun share(ctx: Context, msg: String) {
 @Composable
 fun ScheduleDialog(repo: MainRepo, customerId: Long, onDismiss: () -> Unit) {
     var date by remember { mutableStateOf(Fmt.today()) }
+    var showDatePicker by remember { mutableStateOf(false) }
     var time by remember { mutableStateOf("10:00") }
     var beforeDay by remember { mutableStateOf(true) }
     var atTime by remember { mutableStateOf(true) }
     var after1 by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    if (showDatePicker) {
+        val initialMillis = runCatching {
+            LocalDate.parse(date).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
+        }.getOrNull()
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { millis ->
+                        date = java.time.Instant.ofEpochMilli(millis)
+                            .atZone(ZoneOffset.UTC).toLocalDate().toString()
+                    }
+                    showDatePicker = false
+                }) { Text("اختيار") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("إلغاء") }
+            }
+        ) {
+            DatePicker(state = pickerState, showModeToggle = false)
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("تحديد موعد استحقاق") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(date, { date = it }, label = { Text("التاريخ (YYYY-MM-DD)") },
-                    modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(
+                    value = date,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("التاريخ") },
+                    trailingIcon = {
+                        IconButton(onClick = { showDatePicker = true }) {
+                            Icon(Icons.Rounded.DateRange, contentDescription = "اختيار التاريخ")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
                 OutlinedTextField(time, { time = it }, label = { Text("الوقت (HH:MM)") },
                     modifier = Modifier.fillMaxWidth(), singleLine = true)
                 Row(verticalAlignment = Alignment.CenterVertically) {
