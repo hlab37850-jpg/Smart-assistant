@@ -179,6 +179,7 @@ private fun share(ctx: Context, msg: String) {
     runCatching { ctx.startActivity(Intent.createChooser(i, "إرسال تذكير")) }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScheduleDialog(repo: MainRepo, customerId: Long, onDismiss: () -> Unit) {
     var date by remember { mutableStateOf(Fmt.today()) }
