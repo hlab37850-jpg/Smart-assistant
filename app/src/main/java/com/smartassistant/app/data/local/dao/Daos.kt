@@ -46,14 +46,14 @@ interface CustomerDao {
     @Query("""SELECT c.*, d.id AS dueId, d.date AS dueDate, d.time AS dueTime, d.followedUp AS dueFollowed
         FROM customers c LEFT JOIN dues d ON d.id = (
           SELECT id FROM dues WHERE customerId = c.id ORDER BY date || ' ' || time LIMIT 1)
-        WHERE c.archived = 0 ORDER BY c.name""")
+        WHERE c.archived = 0 ORDER BY CASE WHEN c.importSessionId IS NULL THEN 1 ELSE 0 END, c.importSessionId DESC, c.sourcePage, c.importRowNumber, c.id""")
     fun allPaged(): PagingSource<Int, CustomerDueRow>
 
     @Query("""SELECT c.*, d.id AS dueId, d.date AS dueDate, d.time AS dueTime, d.followedUp AS dueFollowed
         FROM customers c LEFT JOIN dues d ON d.id = (
           SELECT id FROM dues WHERE customerId = c.id ORDER BY date || ' ' || time LIMIT 1)
         WHERE c.archived = 0 AND (c.name LIKE '%' || :q || '%' OR c.phone LIKE '%' || :q || '%'
-          OR CAST(c.balance AS TEXT) LIKE '%' || :q || '%') ORDER BY c.name""")
+          OR CAST(c.balance AS TEXT) LIKE '%' || :q || '%') ORDER BY CASE WHEN c.importSessionId IS NULL THEN 1 ELSE 0 END, c.importSessionId DESC, c.sourcePage, c.importRowNumber, c.id""")
     fun searchPaged(q: String): PagingSource<Int, CustomerDueRow>
 
     @Query("""SELECT c.*, d.id AS dueId, d.date AS dueDate, d.time AS dueTime, d.followedUp AS dueFollowed
@@ -67,14 +67,14 @@ interface CustomerDao {
           WHEN 'TODAY' THEN d.date = :today
           WHEN 'FORGOTTEN' THEN d.date < :today AND IFNULL(d.followedUp,0) = 0
           ELSE 1 END
-        ORDER BY d.date, c.name""")
+        ORDER BY CASE WHEN c.importSessionId IS NULL THEN 1 ELSE 0 END, c.importSessionId DESC, c.sourcePage, c.importRowNumber, c.id""")
     fun filterPaged(filter: String, today: String): PagingSource<Int, CustomerDueRow>
 
     @Query("SELECT COUNT(*) FROM customers WHERE archived = 0") fun count(): Flow<Int>
     @Query("SELECT IFNULL(SUM(balance),0) FROM customers WHERE balance > 0") fun totalTheyOwe(): Flow<Double>
     @Query("SELECT IFNULL(SUM(-balance),0) FROM customers WHERE balance < 0") fun totalWeOwe(): Flow<Double>
     @Query("SELECT * FROM customers WHERE id = :id") suspend fun byId(id: Long): Customer?
-    @Query("SELECT * FROM customers WHERE archived = 0") suspend fun allSync(): List<Customer>
+    @Query("SELECT * FROM customers WHERE archived = 0 ORDER BY CASE WHEN importSessionId IS NULL THEN 1 ELSE 0 END, importSessionId DESC, sourcePage, importRowNumber, id") suspend fun allSync(): List<Customer>
     @Query("SELECT * FROM customers WHERE nameNormalized = :norm AND archived = 0") suspend fun byNormalizedName(norm: String): Customer?
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(c: Customer): Long
     @Update suspend fun update(c: Customer)
@@ -87,13 +87,13 @@ interface CustomerDao {
 interface ProductDao {
     @Query("""SELECT p.*, i.qty AS qty, i.minQty AS minQty, i.expiryDate AS expiry
         FROM products p LEFT JOIN inventory i ON i.productId = p.id
-        WHERE p.archived = 0 ORDER BY p.nameRaw""")
+        WHERE p.archived = 0 ORDER BY CASE WHEN p.importSessionId IS NULL THEN 1 ELSE 0 END, p.importSessionId DESC, p.sourcePage, p.importRowNumber, p.id""")
     fun allPaged(): PagingSource<Int, ProductRow>
 
     @Query("""SELECT p.*, i.qty AS qty, i.minQty AS minQty, i.expiryDate AS expiry
         FROM products p LEFT JOIN inventory i ON i.productId = p.id
         WHERE p.archived = 0 AND (p.nameRaw LIKE '%' || :q || '%' OR p.code LIKE '%' || :q || '%')
-        ORDER BY p.nameRaw""")
+        ORDER BY CASE WHEN p.importSessionId IS NULL THEN 1 ELSE 0 END, p.importSessionId DESC, p.sourcePage, p.importRowNumber, p.id""")
     fun searchPaged(q: String): PagingSource<Int, ProductRow>
 
     @Query("""SELECT p.*, i.qty AS qty, i.minQty AS minQty, i.expiryDate AS expiry
@@ -103,7 +103,7 @@ interface ProductDao {
                   WHEN 'OUT' THEN i.qty <= 0
                   WHEN 'EXP' THEN i.expiryDate IS NOT NULL AND i.expiryDate <= :today
                   ELSE 1 END
-        ORDER BY p.nameRaw""")
+        ORDER BY CASE WHEN p.importSessionId IS NULL THEN 1 ELSE 0 END, p.importSessionId DESC, p.sourcePage, p.importRowNumber, p.id""")
     fun tabPaged(tab: String, today: String): PagingSource<Int, ProductRow>
 
     @Query("""SELECT p.*, i.qty AS qty, i.minQty AS minQty, i.expiryDate AS expiry
@@ -115,7 +115,7 @@ interface ProductDao {
     @Query("""SELECT COUNT(*) FROM products p JOIN inventory i ON i.productId=p.id
         WHERE p.archived=0 AND i.qty <= i.minQty""") fun lowOrOutCount(): Flow<Int>
     @Query("SELECT * FROM products WHERE id=:id") suspend fun byId(id: Long): Product?
-    @Query("SELECT * FROM products WHERE archived = 0") suspend fun allSync(): List<Product>
+    @Query("SELECT * FROM products WHERE archived = 0 ORDER BY CASE WHEN importSessionId IS NULL THEN 1 ELSE 0 END, importSessionId DESC, sourcePage, importRowNumber, id") suspend fun allSync(): List<Product>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insert(p: Product): Long
     @Update suspend fun update(p: Product)
     @Query("UPDATE products SET archived=1 WHERE id=:id") suspend fun archive(id: Long)
